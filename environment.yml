@@ -1,0 +1,17 @@
+name: sbi-tut
+channels:
+  - conda-forge
+dependencies:
+  - python=3.12
+  - numpy
+  - matplotlib
+  - jupyterlab
+  - ipykernel
+  - streamlit
+  - plotly
+  - sbi
+  - pytorch
+  - pip
+  - pip:
+      - uv
+      - streamlit-plotly-events

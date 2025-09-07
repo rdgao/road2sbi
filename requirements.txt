@@ -1,0 +1,9 @@
+uv>=0.4
+numpy
+matplotlib
+jupyterlab
+ipykernel
+streamlit
+plotly
+sbi
+streamlit-plotly-events
