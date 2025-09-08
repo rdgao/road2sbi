@@ -71,52 +71,9 @@ def get_rng() -> np.random.Generator:
     return st.session_state.rng
 
 
-def preprocess_theta(theta: np.ndarray, sim_name: str, bounds: Bounds2D) -> np.ndarray:
-    # Map θ as needed for certain simulators.
-    if sim_name == "Two Moons":
-        # Map θ1 to angle in [0, π]; θ2 centered around 0 to choose moon.
-        if bounds.x_max != bounds.x_min:
-            phi = (float(theta[0]) - bounds.x_min) / (bounds.x_max - bounds.x_min) * math.pi
-        else:
-            phi = 0.0
-        mid_y = 0.5 * (bounds.y_min + bounds.y_max)
-        moon_var = float(theta[1]) - mid_y
-        return np.array([phi, moon_var], dtype=float)
-    if sim_name == "Circle":
-        # Map θ1 to angle in [0, 2π]
-        if bounds.x_max != bounds.x_min:
-            phi = (float(theta[0]) - bounds.x_min) / (bounds.x_max - bounds.x_min) * (2.0 * math.pi)
-        else:
-            phi = 0.0
-        return np.array([phi, float(theta[1])], dtype=float)
-    if sim_name == "Spiral":
-        # θ1 → φ ∈ [0, 4π]; θ2 as radial control
-        if bounds.x_max != bounds.x_min:
-            phi = (float(theta[0]) - bounds.x_min) / (bounds.x_max - bounds.x_min) * (4.0 * math.pi)
-        else:
-            phi = 0.0
-        return np.array([phi, float(theta[1])], dtype=float)
-    if sim_name == "Rings":
-        # θ1 → φ ∈ [0, 2π]; θ2 → k ∈ {0,1,2} via tertiles of bounds
-        if bounds.x_max != bounds.x_min:
-            phi = (float(theta[0]) - bounds.x_min) / (bounds.x_max - bounds.x_min) * (2.0 * math.pi)
-        else:
-            phi = 0.0
-        # tertiles thresholds
-        t1 = bounds.y_min + (bounds.y_max - bounds.y_min) / 3.0
-        t2 = bounds.y_min + 2.0 * (bounds.y_max - bounds.y_min) / 3.0
-        yv = float(theta[1])
-        if yv < t1:
-            k_idx = 0
-        elif yv < t2:
-            k_idx = 1
-        else:
-            k_idx = 2
-        return np.array([phi, float(k_idx)], dtype=float)
-    if sim_name == "Checkerboard":
-        # We will pass raw θ and use bounds inside sim_checkerboard via add_sample
-        return theta
-    return theta
+"""
+Note: preprocess_theta is imported from abc_simulators to avoid duplication.
+"""
 
 
 def add_sample(theta: np.ndarray, sim_name: str, noise_sigma: float, bounds: Bounds2D) -> None:
@@ -189,12 +146,12 @@ def main():
         # --- Sampling (top) ---
         with s_sampling:
             st.markdown("**Sampling**")
-            # Compact row: Fade toggle + Seed input
+            # Compact row: Fade toggle + seed input
             row1c1, row1c2 = st.columns([1.2, 0.8])
             with row1c1:
                 st.session_state.fade_old = st.checkbox("Fade older samples", value=st.session_state.fade_old)
             with row1c2:
-                seed = st.number_input("Seed", value=int(st.session_state.rng_seed), step=1, label_visibility="collapsed")
+                seed = st.number_input("Random seed", value=int(st.session_state.rng_seed), step=1)
                 if seed != st.session_state.rng_seed:
                     st.session_state.rng_seed = int(seed)
                     st.session_state.rng = np.random.default_rng(int(seed))
@@ -307,9 +264,9 @@ def main():
         st.session_state.ys,
         st.session_state.gt_y if st.session_state.gt_y is not None else None,
         float(st.session_state.abc_epsilon) if "abc_epsilon" in st.session_state else None,
-        metric=dist_metric if 'dist_metric' in locals() else 'L2',
-        w1=w1 if 'w1' in locals() else 1.0,
-        w2=w2 if 'w2' in locals() else 1.0,
+        metric=dist_metric,
+        w1=w1,
+        w2=w2,
     )
 
     # Compute fading alphas for previous points (older → more transparent)
@@ -608,7 +565,7 @@ def main():
         if st.session_state.gt_y is not None and len(st.session_state.ys) > 0:
             lastx, lasty = st.session_state.ys[-1]
             # Recompute last distance using chosen metric
-            d_list = compute_distances([(lastx, lasty)], st.session_state.gt_y, dist_metric if 'dist_metric' in locals() else 'L2', w1 if 'w1' in locals() else 1.0, w2 if 'w2' in locals() else 1.0)
+            d_list = compute_distances([(lastx, lasty)], st.session_state.gt_y, dist_metric, w1, w2)
             d_last = d_list[0] if d_list is not None and len(d_list) == 1 else math.hypot(lastx - float(st.session_state.gt_y[0]), lasty - float(st.session_state.gt_y[1]))
             acc_last = None
             if acceptance_mask is not None and len(acceptance_mask) == len(st.session_state.ys):

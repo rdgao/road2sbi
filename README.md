@@ -10,7 +10,7 @@ conda create -n sbi-tut python=3.12 -y   # minimal, just Python
 conda activate sbi-tut
 python -m pip install -U uv               # bootstrap uv once
 uv pip install --system -r requirements.txt
-streamlit run streamlit_app.py
+streamlit run 1-rej_abc_demo.py
 ```
 
 Optionally, start notebooks in the same env:
@@ -27,7 +27,7 @@ python -m venv .venv
 source .venv/bin/activate   # Windows: .venv\\Scripts\\activate
 python -m pip install -U uv
 uv pip install -r requirements.txt
-streamlit run streamlit_app.py
+streamlit run 1-rej_abc_demo.py
 ```
 
 ## Notes

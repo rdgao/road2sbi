@@ -27,6 +27,12 @@ def sim_circle(theta: np.ndarray, sigma: float, rng: np.random.Generator) -> np.
     r = 0.75 + 0.25 * math.tanh(0.5 * float(theta[1]))
     phi = float(theta[0])
     out = np.array([r * math.cos(phi), r * math.sin(phi)])
+    # Clean tiny numerical residue to zero for exact cardinal angles
+    if sigma == 0.0:
+        if abs(out[0]) < 1e-12:
+            out[0] = 0.0
+        if abs(out[1]) < 1e-12:
+            out[1] = 0.0
     if sigma > 0:
         out = out + rng.normal(0.0, sigma, size=2)
     return out
@@ -73,8 +79,11 @@ def sim_s_curve(theta: np.ndarray, sigma: float, rng: np.random.Generator, a: fl
     return y
 
 
+from typing import Optional
+
+
 def sim_checkerboard(theta: np.ndarray, sigma: float, rng: np.random.Generator, m: int = 4, delta: float = 0.4,
-                     bounds: Bounds2D | None = None) -> np.ndarray:
+                     bounds: Optional[Bounds2D] = None) -> np.ndarray:
     t1, t2 = float(theta[0]), float(theta[1])
     if bounds is None:
         bx = Bounds2D(-3, 3, -3, 3)
@@ -82,8 +91,13 @@ def sim_checkerboard(theta: np.ndarray, sigma: float, rng: np.random.Generator, 
         bx = bounds
     u = 0.0 if bx.x_max == bx.x_min else (t1 - bx.x_min) / (bx.x_max - bx.x_min)
     v = 0.0 if bx.y_max == bx.y_min else (t2 - bx.y_min) / (bx.y_max - bx.y_min)
-    i = int(np.clip(math.floor(u * m), 0, m - 1))
-    j = int(np.clip(math.floor(v * m), 0, m - 1))
+    # Guard against exact 1.0 mapping to out-of-range bin due to floating boundaries
+    if u >= 1.0:
+        u = np.nextafter(1.0, 0.0)
+    if v >= 1.0:
+        v = np.nextafter(1.0, 0.0)
+    i = int(math.floor(u * m))
+    j = int(math.floor(v * m))
     cx = -1.0 + (i + 0.5) * (2.0 / m)
     cy = -1.0 + (j + 0.5) * (2.0 / m)
     sx = delta if ((i + j) % 2 == 0) else -delta
@@ -168,4 +182,3 @@ def preprocess_theta(theta: np.ndarray, sim_name: str, bounds: Bounds2D) -> np.n
     if sim_name == "Checkerboard":
         return theta
     return theta
-

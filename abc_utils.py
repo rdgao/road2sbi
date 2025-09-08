@@ -94,7 +94,7 @@ def ellipse_points(mean: np.ndarray, cov: np.ndarray, n: int = 120, k_sigma: flo
     return pts
 
 
-def kde2d_grid(data: np.ndarray, bounds: Bounds2D, gridsize: int = 60) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+def kde2d_grid(data: np.ndarray, bounds: Bounds2D, gridsize: int = 60) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     n = data.shape[0]
     gx = np.linspace(bounds.x_min, bounds.x_max, gridsize)
     gy = np.linspace(bounds.y_min, bounds.y_max, gridsize)
@@ -148,5 +148,5 @@ def compute_acceptance_mask(
     if dists is None:
         return None
     eps = float(epsilon)
-    return [d <= eps for d in dists]
-
+    # Use strict inequality so points exactly at distance eps are rejected
+    return [d < eps for d in dists]
