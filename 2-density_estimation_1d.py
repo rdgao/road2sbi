@@ -389,6 +389,7 @@ def main():
         st.header("Fit")
         fit_name = st.selectbox("Estimator", [
             "Gaussian (User)",
+            "Mixture of Gaussians (User, 2)",
             "Gaussian (MLE)",
             "Mixture of Gaussians (EM)",
             "KDE (Gaussian)"
@@ -403,6 +404,19 @@ def main():
                 sigma0 = st.number_input("σ (user)", value=sigma_default, min_value=0.0, key="sigma_user")
                 fit_params.update(dict(mu=float(st.session_state.get("mu_user", mu0)),
                                        sigma=float(st.session_state.get("sigma_user", sigma0))))
+            elif fit_name == "Mixture of Gaussians (User, 2)":
+                # User-defined 2-component MoG
+                mu1 = st.number_input("μ₁ (user)", value=float(st.session_state.get("mog2_mu1", -2.0)), key="mog2_mu1")
+                s1 = st.number_input("σ₁ (user)", value=float(st.session_state.get("mog2_sigma1", 0.8)), min_value=0.0, key="mog2_sigma1")
+                mu2 = st.number_input("μ₂ (user)", value=float(st.session_state.get("mog2_mu2", 2.0)), key="mog2_mu2")
+                s2 = st.number_input("σ₂ (user)", value=float(st.session_state.get("mog2_sigma2", 0.8)), min_value=0.0, key="mog2_sigma2")
+                w1 = st.slider("w₁ (user)", 0.0, 1.0, float(st.session_state.get("mog2_w1", 0.5)), key="mog2_w1")
+                w2 = 1.0 - w1
+                fit_params.update(dict(
+                    mus=np.array([float(mu1), float(mu2)]),
+                    sigmas=np.array([max(float(s1), 1e-9), max(float(s2), 1e-9)]),
+                    weights=np.array([float(w1), float(w2)])
+                ))
             elif fit_name == "Mixture of Gaussians (EM)":
                 K = st.slider("Components K", 1, 6, 2)
                 iters = st.slider("EM iters", 10, 300, 120, step=10)
@@ -415,8 +429,8 @@ def main():
                 fit_params.update(dict(bw_mode=bw_mode, bw=bw))
         # No nudge buttons; user edits μ, σ directly above
         # Explicit refit button (does not auto-refit on new samples)
-        # Shown always; disabled for Gaussian (User)
-        if st.button("Refit model", disabled=(fit_name == "Gaussian (User)")):
+        # Disabled for user-defined models
+        if st.button("Refit model", disabled=(fit_name in ("Gaussian (User)", "Mixture of Gaussians (User, 2)"))):
             if fit_name == "Gaussian (User)":
                 pass
             else:
@@ -747,6 +761,24 @@ def main():
             st.session_state["user_gauss_best_ll"] = mean_ll
             st.session_state["user_gauss_best_params"] = (mu0, sig0)
         desc = f"μ={mu0:.3f}, σ={sig0:.3f}; mean log-lik={mean_ll:.4f} (best: {st.session_state['user_gauss_best_ll']:.4f})"
+    elif fit_name == "Mixture of Gaussians (User, 2)":
+        mus = np.asarray(fit_params.get("mus", np.array([-2.0, 2.0])), dtype=float)
+        sigmas = np.asarray(fit_params.get("sigmas", np.array([0.8, 0.8])), dtype=float)
+        weights = np.asarray(fit_params.get("weights", np.array([0.5, 0.5])), dtype=float)
+        # normalize weights just in case
+        weights = np.clip(weights, 1e-12, None)
+        weights = weights / weights.sum()
+        fit_pdf = pdf_mog(grid, mus, sigmas, weights)
+        # Mean log-likelihood under the user mixture
+        px = np.zeros_like(x, dtype=float)
+        for k in range(2):
+            px += float(weights[k]) * pdf_gaussian(x, float(mus[k]), float(sigmas[k]))
+        mean_ll = float(np.log(np.clip(px, 1e-300, None)).mean())
+        mean_ll_for_display = mean_ll
+        desc = (
+            f"K=2 (user); weights={np.round(weights,3)}, mus={np.round(mus,3)}, sigmas={np.round(sigmas,3)}; "
+            f"mean log-lik={mean_ll:.4f}"
+        )
     elif fit_name == "Gaussian (MLE)":
         # Use existing fitted model if available; do not refit automatically
         fitted = st.session_state.get("fitted")
