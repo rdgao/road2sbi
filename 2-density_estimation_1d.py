@@ -538,13 +538,18 @@ def main():
         st.header("Fit")
         fit_name = st.selectbox("Estimator", [
             "Gaussian (MLE)",
+            "Gaussian (User)",
             "Mixture of Gaussians (EM)",
             "KDE (Gaussian)"
         ], index=0)
         # Advanced fit options in an expander
         fit_params = {}
         with st.expander("Fit options", expanded=False):
-            if fit_name == "Mixture of Gaussians (EM)":
+            if fit_name == "Gaussian (User)":
+                mu0 = st.number_input("μ (user)", value=0.0)
+                sigma0 = st.number_input("σ (user)", value=1.0, min_value=0.0)
+                fit_params.update(dict(mu=mu0, sigma=sigma0))
+            elif fit_name == "Mixture of Gaussians (EM)":
                 K = st.slider("Components K", 1, 6, 2)
                 iters = st.slider("EM iters", 10, 300, 120, step=10)
                 fit_params.update(dict(K=K, iters=iters))
@@ -635,6 +640,14 @@ def main():
         mu_hat, sig_hat = fit_gaussian_mle(x)
         fit_pdf = pdf_gaussian(grid, mu_hat, sig_hat)
         desc = f"μ̂={mu_hat:.3f}, σ̂={sig_hat:.3f}"
+    elif fit_name == "Gaussian (User)":
+        mu0 = float(fit_params.get("mu", 0.0))
+        sig0 = max(float(fit_params.get("sigma", 1.0)), 1e-9)
+        fit_pdf = pdf_gaussian(grid, mu0, sig0)
+        # Mean log-likelihood over all samples
+        z = (x - mu0) / sig0
+        mean_ll = float((-0.5 * (z * z) - math.log(math.sqrt(2.0 * math.pi) * sig0)).mean())
+        desc = f"μ={mu0:.3f}, σ={sig0:.3f}; mean log-lik={mean_ll:.4f}"
     elif fit_name == "Mixture of Gaussians (EM)":
         K = int(fit_params["K"]) ; iters = int(fit_params["iters"])
         gmm = em_fit_gmm(x, K=K, max_iter=iters, rng=get_rng())
