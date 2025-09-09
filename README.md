@@ -128,3 +128,22 @@ Suggested explorations
 - Manually tune μ, σ to maximize the mean log‑likelihood for various true families; compare with MLE.
 - Change K for the MoG fit and watch how the mean log‑likelihood and shape respond on multi‑modal truths.
 - Vary KDE bandwidth (Silverman/Scott/Manual) on heavy‑tailed vs. compact distributions; find h values that balance bias/variance.
+
+## New: Conditional Density Demo (1D → 1D)
+
+Visualize conditional samples (theta, x) from various simulators p(x | theta), with homoscedastic and heteroscedastic noise options.
+
+```bash
+cd sbi-tut
+streamlit run 3-conditional_density_demo.py
+```
+
+What’s included
+- Mappings: Linear; Sine; Sine + Line; Projected Circle; Projected Two Moons; Projected Spiral; Projected Checkerboard.
+- Noise: Homoscedastic, Linear |theta|, U‑shape (quadratic), and Sinusoidal heteroscedasticity.
+- Theta sampling: Uniform or fixed grid over a selectable range; choose total sample count.
+- Plotting: 2D scatter of (theta, x) using Plotly if available, with Matplotlib fallback.
+
+Tips
+- Try grid sampling to see how p(x | theta) changes across theta consistently.
+- For projected shapes, use “x shift” and “x scale” to center/scale the marginal, then add measurement noise via the noise controls.
