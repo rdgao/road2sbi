@@ -364,6 +364,12 @@ def ensure_state():
         st.session_state.rng = np.random.default_rng(int(st.session_state.rng_seed))
     if "samples" not in st.session_state:
         st.session_state.samples = np.array([], dtype=float)
+    if "fitted" not in st.session_state:
+        # Holds last fitted model independent of new samples
+        st.session_state.fitted = None  # dict with keys: kind, params
+    if "fixed_grids" not in st.session_state:
+        # Persisted plot grids per estimator kind so curves don't rescale
+        st.session_state.fixed_grids = {}
 
 
 def get_rng() -> np.random.Generator:
@@ -376,6 +382,80 @@ def main():
     st.caption("Draw samples from a chosen 1D distribution, then fit parametric or non-parametric models and compare.")
 
     with st.sidebar:
+        # Order: Fit at top, then Sampling and True density
+        st.header("Fit")
+        fit_name = st.selectbox("Estimator", [
+            "Gaussian (User)",
+            "Gaussian (MLE)",
+            "Mixture of Gaussians (EM)",
+            "KDE (Gaussian)"
+        ], index=0)
+        # Advanced fit options
+        fit_params = {}
+        with st.expander("Fit options", expanded=False):
+            if fit_name == "Gaussian (User)":
+                mu_default = float(st.session_state.get("mu_user", 0.0))
+                sigma_default = float(st.session_state.get("sigma_user", 1.0))
+                mu0 = st.number_input("μ (user)", value=mu_default, key="mu_user")
+                sigma0 = st.number_input("σ (user)", value=sigma_default, min_value=0.0, key="sigma_user")
+                fit_params.update(dict(mu=float(st.session_state.get("mu_user", mu0)),
+                                       sigma=float(st.session_state.get("sigma_user", sigma0))))
+            elif fit_name == "Mixture of Gaussians (EM)":
+                K = st.slider("Components K", 1, 6, 2)
+                iters = st.slider("EM iters", 10, 300, 120, step=10)
+                fit_params.update(dict(K=K, iters=iters))
+            elif fit_name == "KDE (Gaussian)":
+                bw_mode = st.selectbox("Bandwidth", ["Silverman", "Scott", "Manual"], index=0)
+                bw = None
+                if bw_mode == "Manual":
+                    bw = st.number_input("h (bandwidth)", value=0.3, min_value=0.0)
+                fit_params.update(dict(bw_mode=bw_mode, bw=bw))
+        # No nudge buttons; user edits μ, σ directly above
+        # Explicit refit button (does not auto-refit on new samples)
+        # Shown always; disabled for Gaussian (User)
+        if st.button("Refit model", disabled=(fit_name == "Gaussian (User)")):
+            if fit_name == "Gaussian (User)":
+                pass
+            else:
+                x_fit = st.session_state.samples
+                if x_fit.size == 0:
+                    st.warning("Draw samples first to fit a model.")
+                else:
+                    if fit_name == "Gaussian (MLE)":
+                        mu_hat, sig_hat = fit_gaussian_mle(x_fit)
+                        st.session_state.fitted = {"kind": "Gaussian (MLE)", "mu": float(mu_hat), "sigma": float(sig_hat)}
+                    elif fit_name == "Mixture of Gaussians (EM)":
+                        K = int(fit_params.get("K", 2))
+                        iters = int(fit_params.get("iters", 120))
+                        gmm = em_fit_gmm(x_fit, K=K, max_iter=iters, rng=get_rng())
+                        st.session_state.fitted = {
+                            "kind": "Mixture of Gaussians (EM)",
+                            "mus": gmm.mus.tolist(),
+                            "sigmas": gmm.sigmas.tolist(),
+                            "weights": gmm.weights.tolist(),
+                        }
+                    else:  # KDE
+                        mode = fit_params.get("bw_mode", "Silverman")
+                        if mode == "Silverman":
+                            h = silverman_bandwidth(x_fit)
+                        elif mode == "Scott":
+                            h = scott_bandwidth(x_fit)
+                        else:
+                            h = float(fit_params.get("bw", 0.3))
+                        st.session_state.fitted = {
+                            "kind": "KDE (Gaussian)",
+                            "train_x": x_fit.tolist(),
+                            "bandwidth": float(h),
+                        }
+                # Clear any previous fixed grid; it will be set on next render
+                if "fitted" in st.session_state and isinstance(st.session_state.fitted, dict):
+                    st.session_state.fitted.pop("grid", None)
+                # Also clear the fixed grid for this estimator kind
+                fg = st.session_state.get("fixed_grids", {})
+                if fit_name in fg:
+                    del fg[fit_name]
+        st.markdown("---")
+
         st.header("Sampling")
         # Top: manual resample button
         resample_clicked = st.button("Draw new samples")
@@ -533,33 +613,15 @@ def main():
         family_changed = (st.session_state._prev_true_name != true_name)
         if family_changed or resample_clicked or st.session_state.samples.size == 0:
             st.session_state.samples = sampler(int(N))
+            # Track a generation counter so rug subset stays stable across UI tweaks
+            st.session_state["samples_gen"] = int(st.session_state.get("samples_gen", 0)) + 1
+            # Invalidate cached rug subset
+            for _k in ("rug_idx", "rug_u", "rug_idx_gen", "rug_subset_n"):
+                if _k in st.session_state:
+                    del st.session_state[_k]
             st.session_state._prev_true_name = true_name
 
-        st.header("Fit")
-        fit_name = st.selectbox("Estimator", [
-            "Gaussian (MLE)",
-            "Gaussian (User)",
-            "Mixture of Gaussians (EM)",
-            "KDE (Gaussian)"
-        ], index=0)
-        # Advanced fit options in an expander
-        fit_params = {}
-        with st.expander("Fit options", expanded=False):
-            if fit_name == "Gaussian (User)":
-                mu0 = st.number_input("μ (user)", value=0.0)
-                sigma0 = st.number_input("σ (user)", value=1.0, min_value=0.0)
-                fit_params.update(dict(mu=mu0, sigma=sigma0))
-            elif fit_name == "Mixture of Gaussians (EM)":
-                K = st.slider("Components K", 1, 6, 2)
-                iters = st.slider("EM iters", 10, 300, 120, step=10)
-                fit_params.update(dict(K=K, iters=iters))
-            elif fit_name == "KDE (Gaussian)":
-                bw_mode = st.selectbox("Bandwidth", ["Silverman", "Scott", "Manual"], index=0)
-                bw = None
-                if bw_mode == "Manual":
-                    bw = st.number_input("h (bandwidth)", value=0.3, min_value=0.0)
-                fit_params.update(dict(bw_mode=bw_mode, bw=bw))
-
+        # Fit is configured at the top; proceed to display controls
         st.markdown("---")
         st.subheader("Display")
         st.checkbox("Show histogram", value=st.session_state.get("show_hist", True), key="show_hist")
@@ -589,24 +651,55 @@ def main():
     if x.size == 0:
         st.stop()
 
-    # Grid for PDF curves
-    lo, hi = float(np.min(x)), float(np.max(x))
-    span = hi - lo if hi > lo else 1.0
-    pad = 0.1 * span
-    gmin = min(support[0], lo - pad)
-    gmax = max(support[1], hi + pad)
-    grid = np.linspace(gmin, gmax, 800)
+    # Grid for PDF curves (persist grid per estimator kind even for User Gaussian)
+    fitted = st.session_state.get("fitted")
+    grid = None
+    # First preference: per-kind fixed grid cache
+    fg = st.session_state.get("fixed_grids", {})
+    if fit_name in fg:
+        grid = np.array(fg[fit_name], dtype=float)
+    # Second: grid attached to a fitted model of same kind
+    elif fitted is not None and fitted.get("kind") == fit_name and "grid" in fitted:
+        grid = np.array(fitted["grid"], dtype=float)
+        # sync into per-kind cache
+        st.session_state.fixed_grids[fit_name] = grid.tolist()
+    else:
+        lo, hi = float(np.min(x)), float(np.max(x))
+        span = hi - lo if hi > lo else 1.0
+        pad = 0.1 * span
+        gmin = min(support[0], lo - pad)
+        gmax = max(support[1], hi + pad)
+        grid = np.linspace(gmin, gmax, 800)
+        # cache this grid for the current estimator kind
+        st.session_state.fixed_grids[fit_name] = grid.tolist()
 
     # Session-backed bins, control placed below for alignment
     hist_n = int(st.session_state.get("hist_bins", 50))
     true_pdf = pdf(grid)
     # Rug markers (subset of samples), colored and lightly jittered for visibility
     subset_n = int(min(100, x.size))
-    rng = get_rng()
-    idx = rng.choice(x.size, size=subset_n, replace=False) if x.size > 0 else np.array([], dtype=int)
-    x_rug = x[idx] if idx.size else np.array([], dtype=float)
+    # Keep the subset of yellow rug points stable unless samples change
+    samples_gen = int(st.session_state.get("samples_gen", 0))
+    need_new_rug = (
+        "rug_idx" not in st.session_state or
+        int(st.session_state.get("rug_idx_gen", -1)) != samples_gen or
+        int(st.session_state.get("rug_subset_n", -1)) != subset_n or
+        (subset_n > 0 and len(st.session_state.get("rug_idx", [])) != subset_n)
+    )
+    if need_new_rug:
+        if subset_n > 0:
+            rng_local = np.random.default_rng(int(st.session_state.rng_seed) + samples_gen)
+            st.session_state.rug_idx = rng_local.choice(x.size, size=subset_n, replace=False)
+            st.session_state.rug_u = rng_local.uniform(0.0, 1.0, size=subset_n)
+        else:
+            st.session_state.rug_idx = np.array([], dtype=int)
+            st.session_state.rug_u = np.array([], dtype=float)
+        st.session_state.rug_idx_gen = samples_gen
+        st.session_state.rug_subset_n = subset_n
+    idx = st.session_state.rug_idx
+    x_rug = x[idx] if subset_n > 0 else np.array([], dtype=float)
     jitter_scale = max(float(np.max(true_pdf)), 1e-6)
-    y_rug = rng.uniform(0.0, 0.015 * jitter_scale, size=x_rug.size) if x_rug.size else np.array([], dtype=float)
+    y_rug = (st.session_state.rug_u if subset_n > 0 else np.array([], dtype=float)) * (0.015 * jitter_scale)
 
     st.subheader("Samples and densities")
     if _PLOTLY_AVAILABLE:
@@ -618,64 +711,98 @@ def main():
             fig.add_trace(go.Scatter(
                 x=x_rug, y=y_rug, mode="markers",
                 marker=dict(size=8, color="#FFD700", line=dict(color="rgba(0,0,0,0.6)", width=0.5)),
-                name="samples (subset)"
+                name="samples"
             ))
-        # fit curve added below after computing fit_pdf
-        # true curve optionally
-        # We'll append curves after computing fit below
-        pass
+        # Fit curve and overlays will be added after fit computation below
     elif _MATPLOTLIB_AVAILABLE:
         fig, ax = plt.subplots(figsize=(6.5, 3.8))
         if st.session_state.get("show_hist", True):
             ax.hist(x, bins=hist_n, density=True, color=(0.12, 0.47, 0.71, 0.55))
         if x_rug.size:
-            ax.scatter(x_rug, y_rug, s=24, c="#FFD700", edgecolors="k", linewidths=0.4)
-        # curves appended below
-        pass
+            ax.scatter(x_rug, y_rug, s=24, c="#FFD700", edgecolors="k", linewidths=0.4, label="samples")
+        # Fit curve and overlays will be added after fit computation below
     else:
         st.info("Install plotly or matplotlib to see plots.")
 
     # Compute fit curve
-    if fit_name == "Gaussian (MLE)":
-        mu_hat, sig_hat = fit_gaussian_mle(x)
-        fit_pdf = pdf_gaussian(grid, mu_hat, sig_hat)
-        desc = f"μ̂={mu_hat:.3f}, σ̂={sig_hat:.3f}"
-    elif fit_name == "Gaussian (User)":
+    mean_ll_for_display = None
+    if fit_name == "Gaussian (User)":
         mu0 = float(fit_params.get("mu", 0.0))
         sig0 = max(float(fit_params.get("sigma", 1.0)), 1e-9)
         fit_pdf = pdf_gaussian(grid, mu0, sig0)
         # Mean log-likelihood over all samples
         z = (x - mu0) / sig0
         mean_ll = float((-0.5 * (z * z) - math.log(math.sqrt(2.0 * math.pi) * sig0)).mean())
-        desc = f"μ={mu0:.3f}, σ={sig0:.3f}; mean log-lik={mean_ll:.4f}"
-    elif fit_name == "Mixture of Gaussians (EM)":
-        K = int(fit_params["K"]) ; iters = int(fit_params["iters"])
-        gmm = em_fit_gmm(x, K=K, max_iter=iters, rng=get_rng())
-        fit_pdf = pdf_mog(grid, gmm.mus, gmm.sigmas, gmm.weights)
-        desc = f"K={K}; weights={np.round(gmm.weights,3)}, mus={np.round(gmm.mus,3)}, sigmas={np.round(gmm.sigmas,3)}"
-    else:
-        mode = fit_params["bw_mode"]
-        if mode == "Silverman":
-            h = silverman_bandwidth(x)
-        elif mode == "Scott":
-            h = scott_bandwidth(x)
+        mean_ll_for_display = mean_ll
+        # Track best-so-far mean log-likelihood for current samples
+        samples_gen = int(st.session_state.get("samples_gen", 0))
+        if st.session_state.get("user_gauss_best_gen") != samples_gen:
+            st.session_state["user_gauss_best_gen"] = samples_gen
+            st.session_state["user_gauss_best_ll"] = -float("inf")
+            st.session_state["user_gauss_best_params"] = (mu0, sig0)
+        if mean_ll > float(st.session_state.get("user_gauss_best_ll", -float("inf"))):
+            st.session_state["user_gauss_best_ll"] = mean_ll
+            st.session_state["user_gauss_best_params"] = (mu0, sig0)
+        desc = f"μ={mu0:.3f}, σ={sig0:.3f}; mean log-lik={mean_ll:.4f} (best: {st.session_state['user_gauss_best_ll']:.4f})"
+    elif fit_name == "Gaussian (MLE)":
+        # Use existing fitted model if available; do not refit automatically
+        fitted = st.session_state.get("fitted")
+        if fitted is not None and fitted.get("kind") == "Gaussian (MLE)":
+            mu_hat = float(fitted["mu"]) ; sig_hat = max(float(fitted["sigma"]), 1e-9)
+            fit_pdf = pdf_gaussian(grid, mu_hat, sig_hat)
+            z = (x - mu_hat) / sig_hat
+            mean_ll = float((-0.5 * (z * z) - math.log(math.sqrt(2.0 * math.pi) * sig_hat)).mean())
+            mean_ll_for_display = mean_ll
+            desc = f"μ̂={mu_hat:.3f}, σ̂={sig_hat:.3f}; mean log-lik={mean_ll:.4f}"
         else:
-            h = float(fit_params["bw"]) if fit_params["bw"] is not None else silverman_bandwidth(x)
-        fit_pdf = kde_gaussian(x, grid, h)
-        desc = f"h={h:.4f} ({mode})"
+            fit_pdf = None
+            desc = "No fitted Gaussian (MLE). Click ‘Refit model’."
+    elif fit_name == "Mixture of Gaussians (EM)":
+        fitted = st.session_state.get("fitted")
+        if fitted is not None and fitted.get("kind") == "Mixture of Gaussians (EM)":
+            mus = np.array(fitted["mus"], dtype=float)
+            sigmas = np.array(fitted["sigmas"], dtype=float)
+            weights = np.array(fitted["weights"], dtype=float)
+            fit_pdf = pdf_mog(grid, mus, sigmas, weights)
+            px = np.zeros_like(x, dtype=float)
+            for k in range(len(mus)):
+                px += float(weights[k]) * pdf_gaussian(x, float(mus[k]), float(sigmas[k]))
+            mean_ll = float(np.log(np.clip(px, 1e-300, None)).mean())
+            mean_ll_for_display = mean_ll
+            desc = (
+                f"K={len(mus)}; weights={np.round(weights,3)}, mus={np.round(mus,3)}, sigmas={np.round(sigmas,3)}; "
+                f"mean log-lik={mean_ll:.4f}"
+            )
+        else:
+            fit_pdf = None
+            desc = "No fitted mixture. Click ‘Refit model’."
+    else:  # KDE (Gaussian)
+        fitted = st.session_state.get("fitted")
+        if fitted is not None and fitted.get("kind") == "KDE (Gaussian)":
+            train_x = np.array(fitted["train_x"], dtype=float)
+            h = max(float(fitted["bandwidth"]), 1e-9)
+            fit_pdf = kde_gaussian(train_x, grid, h)
+            px = kde_gaussian(train_x, x, h)
+            mean_ll = float(np.log(np.clip(px, 1e-300, None)).mean())
+            mean_ll_for_display = mean_ll
+            desc = f"KDE h={h:.4f}; mean log-lik={mean_ll:.4f}"
+        else:
+            fit_pdf = None
+            desc = "No fitted KDE. Click ‘Refit model’."
 
     # Now add curves to the existing figure/context above
     if _PLOTLY_AVAILABLE:
-        # Recreate full figure for clarity
-        fig = go.Figure()
-        if st.session_state.get("show_hist", True):
-            fig.add_trace(go.Histogram(x=x, nbinsx=hist_n, histnorm="probability density",
-                                       marker_color="rgba(31,119,180,0.55)", name="samples"))
-        if x_rug.size:
-            fig.add_trace(go.Scatter(x=x_rug, y=y_rug, mode="markers",
-                                     marker=dict(size=8, color="#FFD700", line=dict(color="rgba(0,0,0,0.6)", width=0.5)),
-                                     name="samples (subset)"))
-        fig.add_trace(go.Scatter(x=grid, y=fit_pdf, mode="lines", line=dict(color="#d62728", width=2), name="fit"))
+        if 'fit_pdf' in locals() and fit_pdf is not None:
+            fig.add_trace(go.Scatter(x=grid, y=fit_pdf, mode="lines", line=dict(color="#d62728", width=2), name="fit"))
+        # Overlays for Gaussian (User)
+        if fit_name == "Gaussian (User)":
+            mu0 = float(fit_params.get("mu", 0.0))
+            sig0 = max(float(fit_params.get("sigma", 1.0)), 1e-9)
+            fig.add_shape(type="line", x0=mu0, x1=mu0, y0=0, y1=1, xref="x", yref="paper",
+                          line=dict(color="rgba(214,39,40,0.7)", width=1.5, dash="dash"))
+            y_sigma = float(pdf_gaussian(np.array([mu0 + sig0]), mu0, sig0)[0])
+            fig.add_shape(type="line", x0=mu0 - sig0, x1=mu0 + sig0, y0=y_sigma, y1=y_sigma, xref="x", yref="y",
+                          line=dict(color="rgba(214,39,40,0.7)", width=1.5, dash="dash"))
         if st.session_state.get("show_true", True):
             fig.add_trace(go.Scatter(x=grid, y=true_pdf, mode="lines", line=dict(color="#2ca02c", width=2), name="true"))
         fig.update_layout(margin=dict(l=10, r=10, t=30, b=10), height=420)
@@ -686,7 +813,14 @@ def main():
             ax.hist(x, bins=hist_n, density=True, color=(0.12, 0.47, 0.71, 0.55))
         if x_rug.size:
             ax.scatter(x_rug, y_rug, s=24, c="#FFD700", edgecolors="k", linewidths=0.4)
-        ax.plot(grid, fit_pdf, c="#d62728", lw=2, label="fit")
+        if 'fit_pdf' in locals() and fit_pdf is not None:
+            ax.plot(grid, fit_pdf, c="#d62728", lw=2, label="fit")
+        if fit_name == "Gaussian (User)":
+            mu0 = float(fit_params.get("mu", 0.0))
+            sig0 = max(float(fit_params.get("sigma", 1.0)), 1e-9)
+            ax.axvline(mu0, color="#d62728", linestyle="--", linewidth=1.2)
+            y_sigma = float(pdf_gaussian(np.array([mu0 + sig0]), mu0, sig0)[0])
+            ax.hlines(y=y_sigma, xmin=mu0 - sig0, xmax=mu0 + sig0, colors="#d62728", linestyles="--", linewidth=1.2)
         if st.session_state.get("show_true", True):
             ax.plot(grid, true_pdf, c="#2ca02c", lw=2, label="true")
         ax.legend(loc="best")
@@ -694,6 +828,20 @@ def main():
 
     # Bins control moved to sidebar
 
+    # Prominent metrics
+    if mean_ll_for_display is not None:
+        if fit_name == "Gaussian (User)" and "user_gauss_best_ll" in st.session_state:
+            c1, c2 = st.columns(2)
+            with c1:
+                st.metric(label="Mean log-likelihood", value=f"{mean_ll_for_display:.4f}")
+            with c2:
+                best_ll = float(st.session_state.get("user_gauss_best_ll", float("nan")))
+                st.metric(label="Best so far (mean log-lik)", value=f"{best_ll:.4f}")
+            best_mu, best_sig = st.session_state.get("user_gauss_best_params", (None, None))
+            if best_mu is not None:
+                st.caption(f"Best at μ={best_mu:.3f}, σ={best_sig:.3f}")
+        else:
+            st.metric(label="Mean log-likelihood", value=f"{mean_ll_for_display:.4f}")
     st.caption(desc)
 
 
