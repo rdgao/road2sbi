@@ -1,5 +1,4 @@
 import math
-from dataclasses import dataclass
 from typing import Callable, List, Tuple, Optional
 
 import numpy as np
@@ -22,114 +21,35 @@ except Exception:
 st.set_page_config(page_title="1D Density Estimation Demo", layout="wide")
 
 
-# ---------- True 1D densities ----------
+from demo2_plotting import make_plotly_figure, make_matplotlib_figure
 
-def pdf_gaussian(x: np.ndarray, mu: float, sigma: float) -> np.ndarray:
-    sigma = max(float(sigma), 1e-9)
-    z = (x - mu) / sigma
-    return np.exp(-0.5 * z * z) / (math.sqrt(2.0 * math.pi) * sigma)
-
-
-def sample_gaussian(n: int, rng: np.random.Generator, mu: float, sigma: float) -> np.ndarray:
-    return rng.normal(mu, max(sigma, 1e-9), size=n)
-
-
-def pdf_laplace(x: np.ndarray, mu: float, b: float) -> np.ndarray:
-    b = max(float(b), 1e-9)
-    return 0.5 / b * np.exp(-np.abs(x - mu) / b)
-
-
-def sample_laplace(n: int, rng: np.random.Generator, mu: float, b: float) -> np.ndarray:
-    return rng.laplace(mu, max(b, 1e-9), size=n)
-
-
-def pdf_student_t(x: np.ndarray, nu: float, mu: float, sigma: float) -> np.ndarray:
-    # Standardized t scaled and shifted
-    nu = max(float(nu), 1.0)
-    sigma = max(float(sigma), 1e-9)
-    z = (x - mu) / sigma
-    c = math.gamma((nu + 1) / 2) / (math.sqrt(nu * math.pi) * math.gamma(nu / 2))
-    return c * (1 + (z * z) / nu) ** (-(nu + 1) / 2) / sigma
-
-
-def sample_student_t(n: int, rng: np.random.Generator, nu: float, mu: float, sigma: float) -> np.ndarray:
-    nu = max(float(nu), 1.0)
-    sigma = max(float(sigma), 1e-9)
-    return mu + sigma * rng.standard_t(df=nu, size=n)
-
-
-def pdf_lognormal(x: np.ndarray, mu: float, sigma: float) -> np.ndarray:
-    sigma = max(float(sigma), 1e-9)
-    x_safe = np.maximum(x, 1e-12)
-    z = (np.log(x_safe) - mu) / sigma
-    return np.exp(-0.5 * z * z) / (x_safe * sigma * math.sqrt(2.0 * math.pi))
-
-
-def sample_lognormal(n: int, rng: np.random.Generator, mu: float, sigma: float) -> np.ndarray:
-    return rng.lognormal(mean=mu, sigma=max(sigma, 1e-9), size=n)
-
-
-def pdf_beta(x: np.ndarray, a: float, b: float) -> np.ndarray:
-    a = max(float(a), 1e-3)
-    b = max(float(b), 1e-3)
-    x_clamped = np.clip(x, 1e-12, 1 - 1e-12)
-    B = math.gamma(a) * math.gamma(b) / math.gamma(a + b)
-    return (x_clamped ** (a - 1)) * ((1 - x_clamped) ** (b - 1)) / B
-
-
-def sample_beta(n: int, rng: np.random.Generator, a: float, b: float) -> np.ndarray:
-    a = max(float(a), 1e-3)
-    b = max(float(b), 1e-3)
-    return rng.beta(a, b, size=n)
-
-
-# Additional 1D densities
-
-def pdf_uniform(x: np.ndarray, a: float, b: float) -> np.ndarray:
-    a, b = (a, b) if a <= b else (b, a)
-    y = np.zeros_like(x, dtype=float)
-    inside = (x >= a) & (x <= b)
-    width = max(b - a, 1e-12)
-    y[inside] = 1.0 / width
-    return y
-
-
-def sample_uniform(n: int, rng: np.random.Generator, a: float, b: float) -> np.ndarray:
-    a, b = (a, b) if a <= b else (b, a)
-    return rng.uniform(a, b, size=n)
-
-
-def pdf_triangular(x: np.ndarray, a: float, b: float, m: float) -> np.ndarray:
-    a, b = (a, b) if a <= b else (b, a)
-    if m < a:
-        m = a
-    if m > b:
-        m = b
-    y = np.zeros_like(x, dtype=float)
-    denom_left = (b - a) * max(m - a, 1e-12)
-    denom_right = (b - a) * max(b - m, 1e-12)
-    left = (x >= a) & (x <= m)
-    right = (x >= m) & (x <= b)
-    y[left] = 2 * (x[left] - a) / denom_left
-    y[right] = 2 * (b - x[right]) / denom_right
-    return y
-
-
-def sample_triangular(n: int, rng: np.random.Generator, a: float, b: float, m: float) -> np.ndarray:
-    a, b = (a, b) if a <= b else (b, a)
-    m = min(max(m, a), b)
-    return rng.triangular(a, m, b, size=n)
-
-
-def pdf_skew_normal(x: np.ndarray, mu: float, sigma: float, alpha: float) -> np.ndarray:
-    sigma = max(float(sigma), 1e-9)
-    z = (x - mu) / sigma
-    c = 2.0 / sigma
-    # standard normal pdf and cdf
-    phi = np.exp(-0.5 * z * z) / math.sqrt(2.0 * math.pi)
-    t = alpha * z
-    Phi = 0.5 * (1.0 + _erf_vec(t / math.sqrt(2.0)))
-    return c * phi * Phi
+from density1d_models import (
+    pdf_gaussian,
+    sample_gaussian,
+    pdf_laplace,
+    sample_laplace,
+    pdf_student_t,
+    sample_student_t,
+    pdf_lognormal,
+    sample_lognormal,
+    pdf_beta,
+    sample_beta,
+    pdf_uniform,
+    sample_uniform,
+    pdf_triangular,
+    sample_triangular,
+    pdf_skew_normal,
+    pdf_proj_twomoons_x,
+    sample_proj_twomoons_x,
+    sample_proj_checkerboard_x,
+    sample_proj_spiral_x,
+    pdf_arcsine_projected_circle,
+    sample_arcsine_projected_circle,
+    pdf_mixture_arcsine,
+    sample_mixture_arcsine,
+    pdf_mog,
+    sample_mog,
+)
 
 
 def sample_skew_normal(n: int, rng: np.random.Generator, mu: float, sigma: float, alpha: float) -> np.ndarray:
@@ -264,94 +184,7 @@ def sample_mog(n: int, rng: np.random.Generator, mus: np.ndarray, sigmas: np.nda
     return samples
 
 
-# ---------- KDE (Gaussian) ----------
 
-def silverman_bandwidth(x: np.ndarray) -> float:
-    n = max(1, x.size)
-    std = float(np.std(x, ddof=1)) if n > 1 else 1.0
-    iqr = float(np.subtract(*np.percentile(x, [75, 25]))) if n > 1 else 0.0
-    sigma = min(std, iqr / 1.349) if (std > 0 or iqr > 0) else 1.0
-    return 0.9 * sigma * n ** (-1 / 5)
-
-
-def scott_bandwidth(x: np.ndarray) -> float:
-    n = max(1, x.size)
-    std = float(np.std(x, ddof=1)) if n > 1 else 1.0
-    return std * n ** (-1 / 5)
-
-
-def kde_gaussian(x: np.ndarray, grid: np.ndarray, bandwidth: float) -> np.ndarray:
-    h = max(float(bandwidth), 1e-9)
-    diffs = (grid[:, None] - x[None, :]) / h
-    K = np.exp(-0.5 * diffs * diffs) / math.sqrt(2.0 * math.pi)
-    return K.mean(axis=1) / h
-
-
-# ---------- MoG fit via simple EM ----------
-
-@dataclass
-class GMMParams:
-    mus: np.ndarray
-    sigmas: np.ndarray
-    weights: np.ndarray
-
-
-def em_fit_gmm(x: np.ndarray, K: int, max_iter: int = 100, tol: float = 1e-6, rng: Optional[np.random.Generator] = None) -> GMMParams:
-    rng = rng or np.random.default_rng(0)
-    x = x.reshape(-1)
-    n = x.size
-    # Init means by percentiles, weights uniform, variances to overall std
-    mus = np.percentile(x, np.linspace(5, 95, K))
-    sig = np.std(x) if n > 1 else 1.0
-    sigmas = np.full(K, max(sig, 1e-3))
-    weights = np.ones(K) / K
-
-    def loglik(mus_: np.ndarray, sigmas_: np.ndarray, weights_: np.ndarray) -> float:
-        px = np.zeros(n, dtype=float)
-        for k in range(K):
-            px += float(weights_[k]) * pdf_gaussian(x, float(mus_[k]), float(sigmas_[k]))
-        return float(np.log(np.clip(px, 1e-300, None)).sum())
-
-    prev_ll = loglik(mus, sigmas, weights)
-    for _ in range(max_iter):
-        # E-step
-        resp = np.zeros((n, K))
-        for k in range(K):
-            resp[:, k] = weights[k] * pdf_gaussian(x, mus[k], sigmas[k])
-        s = resp.sum(axis=1, keepdims=True)
-        s = np.clip(s, 1e-300, None)
-        resp /= s
-
-        # M-step
-        Nk = resp.sum(axis=0)
-        Nk = np.clip(Nk, 1e-12, None)
-        weights = Nk / n
-        mus = (resp * x[:, None]).sum(axis=0) / Nk
-        diffs2 = (x[:, None] - mus[None, :]) ** 2
-        sigmas = np.sqrt((resp * diffs2).sum(axis=0) / Nk)
-        sigmas = np.clip(sigmas, 1e-3, None)
-
-        # Log-likelihood of the observed data under current params
-        ll = loglik(mus, sigmas, weights)
-        if abs(ll - prev_ll) < tol:
-            break
-        prev_ll = ll
-
-    return GMMParams(mus=mus, sigmas=sigmas, weights=weights)
-
-
-# ---------- MLE for simple families ----------
-
-def fit_gaussian_mle(x: np.ndarray) -> Tuple[float, float]:
-    mu = float(np.mean(x))
-    sigma = float(np.std(x, ddof=0))
-    return mu, max(sigma, 1e-9)
-
-
-def fit_laplace_mle(x: np.ndarray) -> Tuple[float, float]:
-    mu = float(np.median(x))
-    b = float(np.mean(np.abs(x - mu)))
-    return mu, max(b, 1e-9)
 
 
 # ---------- UI State ----------
@@ -825,41 +658,41 @@ def main():
             fit_pdf = None
             desc = "No fitted KDE. Click ‘Refit model’."
 
-    # Now add curves to the existing figure/context above
+    # Render figures via helpers
     if _PLOTLY_AVAILABLE:
-        if 'fit_pdf' in locals() and fit_pdf is not None:
-            fig.add_trace(go.Scatter(x=grid, y=fit_pdf, mode="lines", line=dict(color="#d62728", width=2), name="fit"))
-        # Overlays for Gaussian (User)
-        if fit_name == "Gaussian (User)":
-            mu0 = float(fit_params.get("mu", 0.0))
-            sig0 = max(float(fit_params.get("sigma", 1.0)), 1e-9)
-            fig.add_shape(type="line", x0=mu0, x1=mu0, y0=0, y1=1, xref="x", yref="paper",
-                          line=dict(color="rgba(214,39,40,0.7)", width=1.5, dash="dash"))
-            y_sigma = float(pdf_gaussian(np.array([mu0 + sig0]), mu0, sig0)[0])
-            fig.add_shape(type="line", x0=mu0 - sig0, x1=mu0 + sig0, y0=y_sigma, y1=y_sigma, xref="x", yref="y",
-                          line=dict(color="rgba(214,39,40,0.7)", width=1.5, dash="dash"))
-        if st.session_state.get("show_true", True):
-            fig.add_trace(go.Scatter(x=grid, y=true_pdf, mode="lines", line=dict(color="#2ca02c", width=2), name="true"))
-        fig.update_layout(margin=dict(l=10, r=10, t=30, b=10), height=420)
-        st.plotly_chart(fig, use_container_width=True)
+        fig = make_plotly_figure(
+            x=x,
+            hist_n=hist_n,
+            x_rug=x_rug,
+            y_rug=y_rug,
+            grid=grid,
+            fit_pdf=(fit_pdf if 'fit_pdf' in locals() else None),
+            true_pdf=true_pdf,
+            fit_name=fit_name,
+            fit_params=fit_params,
+            show_hist=bool(st.session_state.get("show_hist", True)),
+            show_true=bool(st.session_state.get("show_true", True)),
+        )
+        if fig is not None:
+            st.plotly_chart(fig, use_container_width=True)
     elif _MATPLOTLIB_AVAILABLE:
-        fig, ax = plt.subplots(figsize=(6.5, 3.8))
-        if st.session_state.get("show_hist", True):
-            ax.hist(x, bins=hist_n, density=True, color=(0.12, 0.47, 0.71, 0.55))
-        if x_rug.size:
-            ax.scatter(x_rug, y_rug, s=24, c="#FFD700", edgecolors="k", linewidths=0.4)
-        if 'fit_pdf' in locals() and fit_pdf is not None:
-            ax.plot(grid, fit_pdf, c="#d62728", lw=2, label="fit")
-        if fit_name == "Gaussian (User)":
-            mu0 = float(fit_params.get("mu", 0.0))
-            sig0 = max(float(fit_params.get("sigma", 1.0)), 1e-9)
-            ax.axvline(mu0, color="#d62728", linestyle="--", linewidth=1.2)
-            y_sigma = float(pdf_gaussian(np.array([mu0 + sig0]), mu0, sig0)[0])
-            ax.hlines(y=y_sigma, xmin=mu0 - sig0, xmax=mu0 + sig0, colors="#d62728", linestyles="--", linewidth=1.2)
-        if st.session_state.get("show_true", True):
-            ax.plot(grid, true_pdf, c="#2ca02c", lw=2, label="true")
-        ax.legend(loc="best")
-        st.pyplot(fig, clear_figure=True)
+        figm = make_matplotlib_figure(
+            x=x,
+            hist_n=hist_n,
+            x_rug=x_rug,
+            y_rug=y_rug,
+            grid=grid,
+            fit_pdf=(fit_pdf if 'fit_pdf' in locals() else None),
+            true_pdf=true_pdf,
+            fit_name=fit_name,
+            fit_params=fit_params,
+            show_hist=bool(st.session_state.get("show_hist", True)),
+            show_true=bool(st.session_state.get("show_true", True)),
+        )
+        if figm is not None:
+            st.pyplot(figm, clear_figure=True)
+    else:
+        st.info("Install plotly or matplotlib to see plots.")
 
     # Bins control moved to sidebar
 
@@ -916,12 +749,12 @@ if __name__ == "__main__":
     main()
 # ----------- Utilities -----------
 
-def _erf_vec(x: np.ndarray) -> np.ndarray:
-    """Vectorized erf approximation (Numerical Recipes). Accurate and fast without scipy."""
-    x = np.asarray(x, dtype=float)
-    sign = np.sign(x)
-    a = np.abs(x)
-    t = 1.0 / (1.0 + 0.3275911 * a)
-    # Horner's method for polynomial
-    y = 1.0 - (((((1.061405429 * t - 1.453152027) * t + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t) * np.exp(-a * a)
-    return sign * y
+from density1d_fit import (
+    silverman_bandwidth,
+    scott_bandwidth,
+    kde_gaussian,
+    GMMParams,
+    em_fit_gmm,
+    fit_gaussian_mle,
+    fit_laplace_mle,
+)
