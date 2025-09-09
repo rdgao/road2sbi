@@ -379,7 +379,10 @@ def get_rng() -> np.random.Generator:
 def main():
     ensure_state()
     st.title("1D Density Estimation Demo")
-    st.caption("Draw samples from a chosen 1D distribution, then fit parametric or non-parametric models and compare.")
+    st.caption(
+        "Draw samples from a chosen 1D distribution, then fit parametric or non-parametric models and compare. "
+        "Tip: with ‘Gaussian (User)’, try optimizing the mean log-likelihood by adjusting μ and σ."
+    )
 
     with st.sidebar:
         # Order: Fit at top, then Sampling and True density
@@ -843,6 +846,38 @@ def main():
         else:
             st.metric(label="Mean log-likelihood", value=f"{mean_ll_for_display:.4f}")
     st.caption(desc)
+
+    # --- More details (theory and models) ---
+    with st.expander("More details (theory and models)"):
+        st.markdown(
+            """
+            Purpose and big picture
+            - Goal: build intuition for 1D density estimation. You pick a true distribution, draw samples x₁:ₙ, then fit a model p̂(x|θ) and inspect both the curve and the mean log‑likelihood 1/n Σ log p̂(xᵢ|θ).
+            - Posterior‑free: this demo focuses on frequentist fits (MLE/EM/KDE) and direct likelihood evaluation, complementary to the ABC demo.
+
+            True families (generators)
+            - Gaussian, Mixture of Gaussians (2 or 3 components), Laplace, Student‑t, Lognormal, Beta [0,1], Uniform, Triangular.
+            - 2D→1D projections: Projected Circle (arcsine), Projected Rings (mixture of arcsine), Projected Two Moons (x), Projected Checkerboard (x), Projected Spiral (x).
+
+            Estimators (fits)
+            - Gaussian (User): you set μ and σ; the app reports the mean log‑likelihood on the current samples and tracks best‑so‑far per sample set. The curve does not auto‑change when you draw new samples.
+            - Gaussian (MLE): closed‑form estimates μ̂ = mean(x), σ̂ = std(x). Click “Refit model” to recompute; after that, the curve persists while you explore.
+            - Mixture of Gaussians (EM): expectation‑maximization with configurable K and iterations. “Refit model” learns {weights, means, stds}; the stored fit is then used to evaluate and plot.
+            - KDE (Gaussian): p̂(x) = 1/n Σ ϕ((x − xᵢ)/h)/h with bandwidth h via Silverman/Scott or manual. “Refit model” stores the training samples and bandwidth; evaluation uses the stored set.
+
+            Likelihood and evaluation
+            - Mean log‑likelihood: 1/n Σ log p̂(xᵢ). Higher is better (less negative). For mixtures: log Σ wₖ N(x | μₖ, σₖ²). For KDE: log p̂(xᵢ) with numerical safeguards.
+            - Caution: Evaluating on the same samples used to fit (especially for KDE) can overestimate performance. For rigor, split into train/validation.
+
+            Persistence model
+            - Curves and their x‑grids persist across new samples and true‑family changes. MLE/EM/KDE only change after you press “Refit model”. Gaussian (User) uses exactly your current μ,σ and a fixed x‑grid.
+
+            Suggested explorations
+            - Manually tune μ, σ to maximize the mean log‑likelihood for various true families; compare with MLE.
+            - Change K for the MoG fit and watch how the mean log‑likelihood and shape respond on multi‑modal truths.
+            - Vary KDE bandwidth (Silverman/Scott/Manual) on heavy‑tailed vs. compact distributions; find h values that balance bias/variance.
+            """
+        )
 
 
 if __name__ == "__main__":
