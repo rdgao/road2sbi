@@ -1,10 +1,8 @@
-uv>=0.4
+streamlit>=1.36
 numpy
+scipy
 matplotlib
-jupyterlab
-ipykernel
-streamlit
 plotly
-sbi
+scikit-learn
 streamlit-plotly-events
-pytest
+streamlit-drawable-canvas
