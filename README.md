@@ -16,3 +16,9 @@ conda env create -f environment_conda.yml
 conda activate road2sbi
 streamlit run 1-rej_abc_app.py
 ```
+
+## Online apps
+The `streamlit` interactive apps are also hosted online at Streamlit Cloud:
+- https://road2sbi-1-abc.streamlit.app/
+- https://road2sbi-3-density-est.streamlit.app/
+- https://road2sbi-4-cde.streamlit.app/ 
