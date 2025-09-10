@@ -1,5 +1,8 @@
-from typing import List, Tuple, Optional
+from typing import List, Tuple, Optional, Dict, Any
 
+import numpy as np
+
+# Optional plotting backends
 try:
     import plotly.graph_objects as go  # type: ignore
     PLOTLY_AVAILABLE = True
@@ -12,8 +15,19 @@ try:
 except Exception:
     MATPLOTLIB_AVAILABLE = False
 
-from abc_utils import Bounds2D
+# Shared types
+try:
+    from utils import Bounds2D
+except Exception:  # allow import when run from parent folder
+    from road2sbi.utils import Bounds2D  # type: ignore
 
+try:
+    from density1d_models import pdf_gaussian
+except Exception:
+    from road2sbi.density1d_models import pdf_gaussian  # type: ignore
+
+
+# ---------------- Shared 2D scatter plotting utilities ----------------
 
 def plot_scatter_plotly(points: List[Tuple[float, float]], title: str, bounds: Bounds2D | None = None,
                         gt_point: Tuple[float, float] | None = None,
@@ -76,8 +90,9 @@ def plot_scatter_plotly(points: List[Tuple[float, float]], title: str, bounds: B
                     )
         else:
             cols_prev = None
-            if fade_prev_alphas is not None and len(fade_prev_alphas) >= (n - 1):
-                cols_prev = [f"rgba(31,119,180,{float(fade_prev_alphas[i])})" for i in range(0, n - 1)]
+            n_prev = max(0, n - 1)
+            if fade_prev_alphas is not None and len(fade_prev_alphas) >= n_prev:
+                cols_prev = [f"rgba(31,119,180,{float(fade_prev_alphas[i])})" for i in range(0, n_prev)]
             fig.add_trace(
                 go.Scatter(x=xs_prev, y=ys_prev, mode="markers",
                            marker=dict(size=8, color=cols_prev or "#1f77b4"), name=prev_name or "previous")
@@ -150,7 +165,7 @@ def plot_scatter_matplotlib(points: List[Tuple[float, float]], title: str, bound
                     xs_prev_acc.append(x_i); ys_prev_acc.append(y_i)
                     cols_prev_acc.append((0.17, 0.63, 0.17, alpha))
                 if xs_prev_acc:
-                    ax.scatter(xs_prev_acc, ys_prev_acc, s=30, c=cols_prev_acc, label="accepted")
+                    ax.scatter(xs_prev_acc, ys_prev_acc, s=24, c=cols_prev_acc, label="accepted")
             else:
                 xs_prev_acc, ys_prev_acc, cols_prev_acc = [], [], []
                 xs_prev_rej, ys_prev_rej, cols_prev_rej = [], [], []
@@ -166,45 +181,142 @@ def plot_scatter_matplotlib(points: List[Tuple[float, float]], title: str, bound
                         xs_prev_rej.append(x_i); ys_prev_rej.append(y_i)
                         cols_prev_rej.append((0.12, 0.47, 0.71, alpha))
                 if xs_prev_rej:
-                    ax.scatter(xs_prev_rej, ys_prev_rej, s=30, c=cols_prev_rej, label="rejected")
+                    ax.scatter(xs_prev_rej, ys_prev_rej, s=20, c=cols_prev_rej, label="rejected")
                 if xs_prev_acc:
-                    ax.scatter(xs_prev_acc, ys_prev_acc, s=30, c=cols_prev_acc, label="accepted")
+                    ax.scatter(xs_prev_acc, ys_prev_acc, s=24, c=cols_prev_acc, label="accepted")
         else:
             xs_prev = [p[0] for p in points[:-1]]
             ys_prev = [p[1] for p in points[:-1]]
+            cols_prev = (0.12, 0.47, 0.71, 0.8)
             if fade_prev_alphas is not None and len(fade_prev_alphas) >= (n - 1):
-                cols_prev = [(0.12, 0.47, 0.71, float(fade_prev_alphas[i])) for i in range(0, n - 1)]
+                cols_prev = None
+                ax.scatter(xs_prev, ys_prev, s=24, c=[(0.12, 0.47, 0.71, float(a)) for a in fade_prev_alphas], label=prev_name or "previous")
             else:
-                cols_prev = [(0.12, 0.47, 0.71, 1.0)] * (n - 1)
-            ax.scatter(xs_prev, ys_prev, s=30, c=cols_prev, label=prev_name)
+                ax.scatter(xs_prev, ys_prev, s=24, c=[cols_prev] * (n - 1), label=prev_name or "previous")
     if n >= 1:
-        ax.scatter([points[-1][0]], [points[-1][1]], s=60, c="#d62728", label=curr_name)
+        ax.scatter([points[-1][0]], [points[-1][1]], s=40, c="#d62728", label=curr_name or "current")
+    if crosshair_xy is not None:
+        cx, cy = crosshair_xy
+        ax.axvline(cx, color="#d62728", linestyle=":")
+        ax.axhline(cy, color="#d62728", linestyle=":")
+    if gt_point is not None:
+        ax.scatter([gt_point[0]], [gt_point[1]], s=80, c="#FFD700", marker="*", label="ground truth")
+        if eps is not None and eps > 0:
+            from matplotlib.patches import Circle  # type: ignore
+
+            circle = Circle(gt_point, float(eps), edgecolor=(0.17, 0.63, 0.17, 0.6), facecolor=(0.17, 0.63, 0.17, 0.08))
+            ax.add_patch(circle)
     if bounds is not None:
         ax.set_xlim(bounds.x_min, bounds.x_max)
         ax.set_ylim(bounds.y_min, bounds.y_max)
     ax.set_title(title)
-    ax.set_aspect("equal", adjustable="box")
-    ax.grid(True, alpha=0.3, which="major")
-    if gt_point is not None:
-        ax.scatter([gt_point[0]], [gt_point[1]], s=100, c="#FFD700", marker="*")
-        if eps is not None and eps > 0:
-            try:
-                from matplotlib.patches import Circle  # type: ignore
-                circ = Circle((gt_point[0], gt_point[1]), eps,
-                              edgecolor=(0.17, 0.63, 0.17, 0.4), facecolor=(0.17, 0.63, 0.17, 0.08), linewidth=1)
-                ax.add_patch(circ)
-            except Exception:
-                pass
-    if crosshair_xy is not None:
-        cx, cy = crosshair_xy
-        ax.axvline(cx, color="#d62728", linestyle=":", linewidth=1)
-        ax.axhline(cy, color="#d62728", linestyle=":", linewidth=1)
-    if prev_name or curr_name:
-        ax.legend(loc="best")
+    ax.set_aspect('equal', adjustable='box')
+    ax.grid(True, linestyle='--', alpha=0.4)
+    ax.legend(loc='best')
     return fig
 
-# ---- Deprecated shim: re-export from consolidated module ----
-try:
-    from road2sbi.plot_utils import *  # type: ignore  # noqa: F401,F403
-except Exception:
-    pass
+
+# ---------------- Shared 1D density plotting utilities ----------------
+
+def make_plotly_figure(
+    x: np.ndarray,
+    hist_n: int,
+    x_rug: np.ndarray,
+    y_rug: np.ndarray,
+    grid: np.ndarray,
+    fit_pdf: Optional[np.ndarray],
+    true_pdf: Optional[np.ndarray],
+    fit_name: str,
+    fit_params: Dict[str, Any],
+    show_hist: bool = True,
+    show_true: bool = True,
+):
+    if not PLOTLY_AVAILABLE:
+        return None
+    fig = go.Figure()
+    if show_hist:
+        fig.add_trace(
+            go.Histogram(
+                x=x,
+                nbinsx=int(hist_n),
+                histnorm="probability density",
+                marker_color="rgba(31,119,180,0.55)",
+                name="samples",
+            )
+        )
+    if x_rug.size:
+        fig.add_trace(
+            go.Scatter(
+                x=x_rug,
+                y=y_rug,
+                mode="markers",
+                marker=dict(size=8, color="#FFD700", line=dict(color="rgba(0,0,0,0.6)", width=0.5)),
+                name="samples",
+            )
+        )
+    if fit_pdf is not None:
+        fig.add_trace(
+            go.Scatter(x=grid, y=fit_pdf, mode="lines", line=dict(color="#d62728", width=2), name="fit")
+        )
+    if show_true and (true_pdf is not None):
+        fig.add_trace(
+            go.Scatter(x=grid, y=true_pdf, mode="lines", line=dict(color="#2ca02c", width=2), name="true")
+        )
+    # Overlays for Gaussian (User)
+    if fit_name == "Gaussian (User)":
+        mu0 = float(fit_params.get("mu", 0.0))
+        sig0 = max(float(fit_params.get("sigma", 1.0)), 1e-9)
+        fig.add_shape(
+            type="line", x0=mu0, x1=mu0, y0=0, y1=1, xref="x", yref="paper",
+            line=dict(color="rgba(214,39,40,0.7)", width=1.5, dash="dash")
+        )
+        y_sigma = float(pdf_gaussian(np.array([mu0 + sig0]), mu0, sig0)[0])
+        fig.add_shape(
+            type="line", x0=mu0 - sig0, x1=mu0 + sig0, y0=y_sigma, y1=y_sigma, xref="x", yref="y",
+            line=dict(color="rgba(214,39,40,0.7)", width=1.5, dash="dash")
+        )
+
+    fig.update_layout(margin=dict(l=10, r=10, t=30, b=10), height=420)
+    return fig
+
+
+def make_matplotlib_figure(
+    x: np.ndarray,
+    hist_n: int,
+    x_rug: np.ndarray,
+    y_rug: np.ndarray,
+    grid: np.ndarray,
+    fit_pdf: Optional[np.ndarray],
+    true_pdf: Optional[np.ndarray],
+    fit_name: str,
+    fit_params: Dict[str, Any],
+    show_hist: bool = True,
+    show_true: bool = True,
+):
+    if not MATPLOTLIB_AVAILABLE:
+        return None
+    fig, ax = plt.subplots(figsize=(6.5, 3.8))
+    if show_hist:
+        ax.hist(x, bins=int(hist_n), density=True, color=(0.12, 0.47, 0.71, 0.55))
+    if x_rug.size:
+        ax.scatter(x_rug, y_rug, s=24, c="#FFD700", edgecolors="k", linewidths=0.4, label="samples")
+    if fit_pdf is not None:
+        ax.plot(grid, fit_pdf, c="#d62728", lw=2, label="fit")
+    if show_true and (true_pdf is not None):
+        ax.plot(grid, true_pdf, c="#2ca02c", lw=2, label="true")
+    if fit_name == "Gaussian (User)":
+        mu0 = float(fit_params.get("mu", 0.0))
+        sig0 = max(float(fit_params.get("sigma", 1.0)), 1e-9)
+        ax.axvline(mu0, color="#d62728", linestyle="--", linewidth=1.2)
+        y_sigma = float(pdf_gaussian(np.array([mu0 + sig0]), mu0, sig0)[0])
+        ax.hlines(y=y_sigma, xmin=mu0 - sig0, xmax=mu0 + sig0, colors="#d62728", linestyles="--", linewidth=1.2)
+    ax.legend(loc="best")
+    return fig
+
+
+__all__ = [
+    "plot_scatter_plotly",
+    "plot_scatter_matplotlib",
+    "make_plotly_figure",
+    "make_matplotlib_figure",
+]

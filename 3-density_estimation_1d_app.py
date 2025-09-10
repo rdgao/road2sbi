@@ -21,7 +21,10 @@ except Exception:
 st.set_page_config(page_title="1D Density Estimation Demo", layout="wide")
 
 
-from demo2_plotting import make_plotly_figure, make_matplotlib_figure
+try:
+    from plot_utils import make_plotly_figure, make_matplotlib_figure
+except Exception:
+    from road2sbi.plot_utils import make_plotly_figure, make_matplotlib_figure
 
 from density1d_models import (
     pdf_gaussian,
@@ -38,27 +41,10 @@ from density1d_models import (
     sample_uniform,
     pdf_triangular,
     sample_triangular,
-    pdf_skew_normal,
-    pdf_proj_twomoons_x,
-    sample_proj_twomoons_x,
-    sample_proj_checkerboard_x,
-    sample_proj_spiral_x,
-    pdf_arcsine_projected_circle,
-    sample_arcsine_projected_circle,
-    pdf_mixture_arcsine,
-    sample_mixture_arcsine,
-    pdf_mog,
-    sample_mog,
 )
 
 
-def sample_skew_normal(n: int, rng: np.random.Generator, mu: float, sigma: float, alpha: float) -> np.ndarray:
-    sigma = max(float(sigma), 1e-9)
-    delta = alpha / math.sqrt(1.0 + alpha * alpha)
-    u0 = rng.normal(0.0, 1.0, size=n)
-    u1 = rng.normal(0.0, 1.0, size=n)
-    y = delta * np.abs(u0) + math.sqrt(max(1e-12, 1.0 - delta * delta)) * u1
-    return mu + sigma * y
+    
 
 
 def pdf_arcsine_projected_circle(x: np.ndarray, r: float) -> np.ndarray:

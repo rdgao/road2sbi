@@ -112,3 +112,8 @@ def make_matplotlib_figure(
     ax.legend(loc="best")
     return fig
 
+# ---- Deprecated shim: re-export from consolidated module ----
+try:
+    from road2sbi.plot_utils import *  # type: ignore  # noqa: F401,F403
+except Exception:
+    pass

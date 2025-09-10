@@ -1,9 +1,12 @@
 import math
-from typing import Callable
+from typing import Callable, Optional
 
 import numpy as np
 
-from abc_utils import Bounds2D
+try:
+    from utils import Bounds2D
+except Exception:
+    from road2sbi.utils import Bounds2D  # type: ignore
 
 
 def sim_linear_gaussian(theta: np.ndarray, sigma: float, rng: np.random.Generator) -> np.ndarray:
@@ -77,9 +80,6 @@ def sim_s_curve(theta: np.ndarray, sigma: float, rng: np.random.Generator, a: fl
     if sigma > 0:
         y = y + rng.normal(0.0, sigma, size=2)
     return y
-
-
-from typing import Optional
 
 
 def sim_checkerboard(theta: np.ndarray, sigma: float, rng: np.random.Generator, m: int = 4, delta: float = 0.4,
@@ -182,9 +182,3 @@ def preprocess_theta(theta: np.ndarray, sim_name: str, bounds: Bounds2D) -> np.n
     if sim_name == "Checkerboard":
         return theta
     return theta
-
-# ---- Deprecated shim: re-export from consolidated module ----
-try:
-    from road2sbi.simulators import *  # type: ignore  # noqa: F401,F403
-except Exception:
-    pass

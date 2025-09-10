@@ -1,4 +1,4 @@
-name: sbi-tut
+name: road2sbi
 channels:
   - conda-forge
 dependencies:
@@ -16,3 +16,4 @@ dependencies:
   - pip:
       - uv
       - streamlit-plotly-events
+      - streamlit-drawable-canvas

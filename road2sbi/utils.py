@@ -131,6 +131,7 @@ def compute_distances(
         if metric == "L1":
             d = abs(dx) + abs(dy)
         elif metric.startswith("Mahalanobis"):
+            # Match prior behavior: w1, w2 are diagonal weights on squared deltas
             d = math.sqrt(max(0.0, w1 * dx * dx + w2 * dy * dy))
         else:
             d = math.hypot(dx, dy)
@@ -139,20 +140,42 @@ def compute_distances(
 
 
 def compute_acceptance_mask(
-    xs: List[Tuple[float, float]], gt_x: Optional[np.ndarray], epsilon: Optional[float],
-    metric: str = "L2", w1: float = 1.0, w2: float = 1.0
+    xs_or_dists: List[Tuple[float, float]] | Optional[List[float]],
+    gt_x: Optional[np.ndarray] = None,
+    epsilon: Optional[float] = None,
+    metric: str = "L2",
+    w1: float = 1.0,
+    w2: float = 1.0,
+    quantile: Optional[float] = None,
+    eps: Optional[float] = None,
 ) -> Optional[List[bool]]:
-    if gt_x is None or epsilon is None:
-        return None
-    dists = compute_distances(xs, gt_x, metric, w1, w2)
-    if dists is None:
-        return None
-    eps = float(epsilon)
-    # Use strict inequality so points exactly at distance eps are rejected
-    return [d < eps for d in dists]
+    """
+    Backward-compatible acceptance mask.
+    - New style: provide a list of distances in `xs_or_dists` and set `eps`/`epsilon`.
+    - Old style: provide `(xs, gt_x, epsilon, metric, w1, w2)` and this computes distances first.
+    Uses strict inequality (d < epsilon) to match previous behavior.
+    """
+    # Normalize epsilon argument
+    if epsilon is None and eps is not None:
+        epsilon = eps
 
-# ---- Deprecated shim: re-export from consolidated module ----
-try:
-    from road2sbi.utils import *  # type: ignore  # noqa: F401,F403
-except Exception:
-    pass
+    if xs_or_dists is None:
+        return None
+
+    # If gt_x is provided or items look like (x,y), compute distances here
+    dists: Optional[List[float]]
+    if gt_x is not None and len(xs_or_dists) > 0 and isinstance(xs_or_dists[0], tuple):  # type: ignore[index]
+        dists = compute_distances(xs_or_dists, gt_x, metric, w1, w2)  # type: ignore[arg-type]
+    else:
+        dists = xs_or_dists  # type: ignore[assignment]
+
+    if dists is None or epsilon is None:
+        return None
+
+    if quantile is not None:
+        k = int(max(1, math.floor(len(dists) * float(quantile))))
+        thr = float(sorted(dists)[k - 1])
+        return [float(d) < thr for d in dists]
+    # Strict inequality to match prior behavior
+    e = float(epsilon)
+    return [float(d) < e for d in dists]

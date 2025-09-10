@@ -1,4 +1,5 @@
 import math
+import time
 from typing import List, Tuple, Optional
 
 import numpy as np
@@ -11,6 +12,7 @@ try:
     _CANVAS_AVAILABLE = True
 except Exception:
     _CANVAS_AVAILABLE = False
+    st_canvas = None
 
 # Optional: use plotly for nicer scatter plots; fallback to matplotlib if unavailable
 try:
@@ -25,30 +27,53 @@ try:
 except Exception:
     _MATPLOTLIB_AVAILABLE = False
 
+# Optional: Plotly click capture fallback
+try:
+    from streamlit_plotly_events import plotly_events  # type: ignore
+    _PLOTLY_EVENTS_AVAILABLE = True
+except Exception:
+    _PLOTLY_EVENTS_AVAILABLE = False
+    plotly_events = None
+
 
 st.set_page_config(page_title="Rejection ABC Demo", layout="wide")
 
 # Import modular utilities
-from abc_utils import (
-    Bounds2D,
-    nice_ticks,
-    canvas_to_theta,
-    theta_to_canvas,
-    ellipse_points,
-    kde2d_grid,
-    compute_acceptance_mask,
-    compute_distances,
-)
+try:
+    from utils import (
+        Bounds2D,
+        nice_ticks,
+        canvas_to_theta,
+        theta_to_canvas,
+        ellipse_points,
+        kde2d_grid,
+        compute_acceptance_mask,
+        compute_distances,
+    )
+except Exception:  # Support running from project root
+    from road2sbi.utils import (
+        Bounds2D,
+        nice_ticks,
+        canvas_to_theta,
+        theta_to_canvas,
+        ellipse_points,
+        kde2d_grid,
+        compute_acceptance_mask,
+        compute_distances,
+    )
 
 
-from abc_simulators import get_simulator, preprocess_theta, sim_checkerboard
+try:
+    from simulators import get_simulator, preprocess_theta, sim_checkerboard
+except Exception:
+    from road2sbi.simulators import get_simulator, preprocess_theta, sim_checkerboard
 
 
 def ensure_state():
     if "thetas" not in st.session_state:
-        st.session_state.thetas: List[Tuple[float, float]] = []
+        st.session_state.thetas = []  # List[Tuple[float, float]]
     if "ys" not in st.session_state:
-        st.session_state.ys: List[Tuple[float, float]] = []
+        st.session_state.ys = []  # List[Tuple[float, float]]
     if "rng_seed" not in st.session_state:
         st.session_state.rng_seed = 123
     if "rng" not in st.session_state:
@@ -65,15 +90,15 @@ def ensure_state():
         st.session_state.show_gt_theta = False
     if "fade_old" not in st.session_state:
         st.session_state.fade_old = True
+    if "_canvas_objs_count" not in st.session_state:
+        st.session_state._canvas_objs_count = 0
+    if "last_click_time" not in st.session_state:
+        st.session_state.last_click_time = 0
 
 
 def get_rng() -> np.random.Generator:
     return st.session_state.rng
 
-
-"""
-Note: preprocess_theta is imported from abc_simulators to avoid duplication.
-"""
 
 
 def add_sample(theta: np.ndarray, sim_name: str, noise_sigma: float, bounds: Bounds2D) -> None:
@@ -88,16 +113,19 @@ def add_sample(theta: np.ndarray, sim_name: str, noise_sigma: float, bounds: Bou
     st.session_state.ys.append((float(y[0]), float(y[1])))
 
 
-# distance and acceptance utilities now imported from abc_utils
+try:
+    from plot_utils import (
+        plot_scatter_plotly,
+        plot_scatter_matplotlib,
+    )
+except Exception:
+    from road2sbi.plot_utils import (
+        plot_scatter_plotly,
+        plot_scatter_matplotlib,
+    )
 
 
-from abc_plotting import (
-    plot_scatter_plotly,
-    plot_scatter_matplotlib,
-)
-
-
-from abc_utils import canvas_to_theta, theta_to_canvas, ellipse_points, kde2d_grid
+# utilities already imported above via utils/road2sbi.utils
 
 
 def main():
@@ -116,137 +144,143 @@ def main():
         s_abc = st.container()
         s_sim = st.container()
 
-        # --- Simulator & bounds at the bottom (defined first for code dependency) ---
+        # --- Simulator (defined first for dependency) ---
         with s_sim:
             st.markdown("---")
-            st.markdown("**Simulator & Bounds**")
-            sim_name = st.selectbox(
-                "Simulator",
-            ["Linear Gaussian", "Banana", "Two Moons", "Circle", "Spiral", "Rings", "Pinwheel", "S-Curve", "Checkerboard"],
-            index=2,
-        )
-            # If simulator changed, clear all existing samples and refresh canvas
-            if st.session_state.last_sim_name is None:
-                st.session_state.last_sim_name = sim_name
-            elif st.session_state.last_sim_name != sim_name:
-                st.session_state.last_sim_name = sim_name
-                st.session_state.thetas.clear()
-                st.session_state.ys.clear()
-                st.session_state.canvas_key += 1
+            st.subheader("Simulator")
+            with st.expander("Simulator parameters", expanded=False):
+                sim_name = st.selectbox(
+                    "Simulator",
+                    ["Linear Gaussian", "Banana", "Two Moons", "Circle", "Spiral", "Rings", "Pinwheel", "S-Curve", "Checkerboard"],
+                    index=2,
+                )
+                # If simulator changed, clear all existing samples and refresh canvas
+                if st.session_state.last_sim_name is None:
+                    st.session_state.last_sim_name = sim_name
+                elif st.session_state.last_sim_name != sim_name:
+                    st.session_state.last_sim_name = sim_name
+                    st.session_state.thetas.clear()
+                    st.session_state.ys.clear()
+                    st.session_state.canvas_key += 1
+                    st.session_state._canvas_objs_count = 0
 
-            noise_sigma = st.slider("Noise σ", min_value=0.0, max_value=1.0, value=0.1, step=0.05)
+                noise_sigma = st.slider("Noise σ", min_value=0.0, max_value=1.0, value=0.1, step=0.05)
 
-            st.markdown("**Prior bounds (θ-space):**")
-            theta1_range = st.slider("θ₁ range", min_value=-10.0, max_value=10.0, value=(-3.0, 3.0), step=0.5)
-            theta2_range = st.slider("θ₂ range", min_value=-10.0, max_value=10.0, value=(-3.0, 3.0), step=0.5)
+                st.caption("Prior bounds (θ-space)")
+                theta1_range = st.slider("θ₁ range", min_value=-10.0, max_value=10.0, value=(-3.0, 3.0), step=0.5)
+                theta2_range = st.slider("θ₂ range", min_value=-10.0, max_value=10.0, value=(-3.0, 3.0), step=0.5)
             x_min, x_max = theta1_range
             y_min, y_max = theta2_range
             bounds = Bounds2D(float(x_min), float(x_max), float(y_min), float(y_max))
 
         # --- Sampling (top) ---
         with s_sampling:
-            st.markdown("**Sampling**")
-            # Compact row: Fade toggle + seed input
-            row1c1, row1c2 = st.columns([1.2, 0.8])
-            with row1c1:
-                st.session_state.fade_old = st.checkbox("Fade older samples", value=st.session_state.fade_old)
-            with row1c2:
-                seed = st.number_input("Random seed", value=int(st.session_state.rng_seed), step=1)
-                if seed != st.session_state.rng_seed:
-                    st.session_state.rng_seed = int(seed)
-                    st.session_state.rng = np.random.default_rng(int(seed))
+            st.subheader("Sampling")
+            with st.expander("Sampling controls", expanded=False):
+                # Compact row: Fade toggle + seed input
+                row1c1, row1c2 = st.columns([1.2, 0.8])
+                with row1c1:
+                    st.session_state.fade_old = st.checkbox("Fade older samples", value=st.session_state.fade_old)
+                with row1c2:
+                    seed = st.number_input("Random seed", value=int(st.session_state.rng_seed), step=1)
+                    if seed != st.session_state.rng_seed:
+                        st.session_state.rng_seed = int(seed)
+                        st.session_state.rng = np.random.default_rng(int(seed))
 
-            # Batch size slider
-            batch_n = st.slider("Batch size (N)", min_value=10, max_value=2000, value=100, step=10)
+                # Batch size slider
+                batch_n = st.slider("Batch size (N)", min_value=10, max_value=2000, value=100, step=10)
 
-            # Two buttons in one row
-            b1, b2 = st.columns(2)
-            with b1:
-                if st.button("Sample 1 θ"):
-                    theta = bounds.sample(get_rng())
-                    add_sample(theta, sim_name, noise_sigma, bounds)
-            with b2:
-                if st.button("Sample N θ"):
-                    with st.spinner(f"Sampling {batch_n} θ and simulating..."):
-                        for _ in range(batch_n):
-                            theta = bounds.sample(get_rng())
-                            add_sample(theta, sim_name, noise_sigma, bounds)
+                # Two buttons in one row
+                b1, b2 = st.columns(2)
+                with b1:
+                    if st.button("Sample 1 θ"):
+                        theta = bounds.sample(get_rng())
+                        add_sample(theta, sim_name, noise_sigma, bounds)
+                with b2:
+                    if st.button("Sample N θ"):
+                        with st.spinner(f"Sampling {batch_n} θ and simulating..."):
+                            for _ in range(batch_n):
+                                theta = bounds.sample(get_rng())
+                                add_sample(theta, sim_name, noise_sigma, bounds)
 
-            st.markdown("---")
-            if st.button("Clear history"):
-                st.session_state.thetas.clear()
-                st.session_state.ys.clear()
-                st.session_state.canvas_key += 1  # refresh canvas
+                st.markdown("---")
+                if st.button("Clear history"):
+                    st.session_state.thetas.clear()
+                    st.session_state.ys.clear()
+                    st.session_state.canvas_key += 1  # refresh canvas
+                    st.session_state._canvas_objs_count = 0
 
         # --- Ground truth (middle) ---
         with s_gt:
-            st.markdown("**Ground truth**")
-            gt_col1, gt_col2 = st.columns(2)
-            with gt_col1:
-                show_gt = st.checkbox("Show GT θ", value=st.session_state.show_gt_theta)
-            with gt_col2:
-                if st.button("Sample new GT"):
-                    st.session_state.gt_theta = bounds.sample(get_rng())
-            st.session_state.show_gt_theta = show_gt
+            st.subheader("Ground truth")
+            with st.expander("Ground truth controls", expanded=False):
+                gt_col1, gt_col2 = st.columns(2)
+                with gt_col1:
+                    show_gt = st.checkbox("Show GT θ", value=st.session_state.show_gt_theta)
+                with gt_col2:
+                    if st.button("Sample new GT"):
+                        st.session_state.gt_theta = bounds.sample(get_rng())
+                st.session_state.show_gt_theta = show_gt
 
-            if st.session_state.gt_theta is None:
-                st.session_state.gt_theta = bounds.sample(get_rng())
-            # Compute GT observation deterministically (no noise)
-            gt_theta_used = preprocess_theta(st.session_state.gt_theta, sim_name, bounds)
-            st.session_state.gt_y = get_simulator(sim_name)(gt_theta_used, 0.0, get_rng())
-            if st.session_state.show_gt_theta:
-                st.caption(
-                    f"Ground truth θ ≈ ({float(st.session_state.gt_theta[0]):.3f}, {float(st.session_state.gt_theta[1]):.3f}); "
-                    f"x* ≈ ({float(st.session_state.gt_y[0]):.3f}, {float(st.session_state.gt_y[1]):.3f})"
-                )
+                if st.session_state.gt_theta is None:
+                    st.session_state.gt_theta = bounds.sample(get_rng())
+                # Compute GT observation deterministically (no noise)
+                gt_theta_used = preprocess_theta(st.session_state.gt_theta, sim_name, bounds)
+                st.session_state.gt_y = get_simulator(sim_name)(gt_theta_used, 0.0, get_rng())
+                if st.session_state.show_gt_theta:
+                    st.caption(
+                        f"Ground truth θ ≈ ({float(st.session_state.gt_theta[0]):.3f}, {float(st.session_state.gt_theta[1]):.3f}); "
+                        f"x* ≈ ({float(st.session_state.gt_y[0]):.3f}, {float(st.session_state.gt_y[1]):.3f})"
+                    )
 
         # --- ABC controls ---
         with s_abc:
-            st.markdown("**ABC**")
-            if "abc_epsilon" not in st.session_state:
-                st.session_state.abc_epsilon = 0.5
-            # Distance options
-            dist_metric = st.selectbox("Distance", ["L2", "L1", "Mahalanobis (diag)"])
-            w1 = 1.0
-            w2 = 1.0
-            if dist_metric.startswith("Mahalanobis"):
-                c_w1, c_w2 = st.columns(2)
-                with c_w1:
-                    w1 = st.number_input("w₁", value=1.0, min_value=0.0)
-                with c_w2:
-                    w2 = st.number_input("w₂", value=1.0, min_value=0.0)
-            st.session_state.abc_epsilon = st.slider("ε (acceptance radius)", min_value=0.0, max_value=5.0, value=float(st.session_state.abc_epsilon), step=0.05)
+            st.subheader("ABC")
+            with st.expander("Distance and acceptance", expanded=False):
+                if "abc_epsilon" not in st.session_state:
+                    st.session_state.abc_epsilon = 0.5
+                # Distance options
+                dist_metric = st.selectbox("Distance", ["L2", "L1", "Mahalanobis (diag)"])
+                w1 = 1.0
+                w2 = 1.0
+                if dist_metric.startswith("Mahalanobis"):
+                    c_w1, c_w2 = st.columns(2)
+                    with c_w1:
+                        w1 = st.number_input("w₁", value=1.0, min_value=0.0)
+                    with c_w2:
+                        w2 = st.number_input("w₂", value=1.0, min_value=0.0)
+                st.session_state.abc_epsilon = st.slider("ε (acceptance radius)", min_value=0.0, max_value=5.0, value=float(st.session_state.abc_epsilon), step=0.05)
 
-            # Optional: set epsilon by quantile of distances
-            set_eps_q = st.checkbox("Set ε by distance quantile", value=False)
-            q = 0.1
-            if set_eps_q:
-                q = st.slider("Quantile q", min_value=0.01, max_value=0.5, value=0.1, step=0.01)
-            # Compute distances and (if enabled) update epsilon
-            dists = compute_distances(st.session_state.ys, st.session_state.gt_y, dist_metric, w1, w2)
-            if set_eps_q and dists is not None and len(dists) > 0:
-                try:
-                    st.session_state.abc_epsilon = float(np.quantile(np.array(dists), q))
-                except Exception:
-                    pass
-                st.caption(f"ε set to q={q:.2f} quantile: {st.session_state.abc_epsilon:.3f}")
+                # Optional: set epsilon by quantile of distances
+                set_eps_q = st.checkbox("Set ε by distance quantile", value=False)
+                q = 0.1
+                if set_eps_q:
+                    q = st.slider("Quantile q", min_value=0.01, max_value=0.5, value=0.1, step=0.01)
+                # Compute distances and (if enabled) update epsilon
+                dists = compute_distances(st.session_state.ys, st.session_state.gt_y, dist_metric, w1, w2)
+                if set_eps_q and dists is not None and len(dists) > 0:
+                    try:
+                        st.session_state.abc_epsilon = float(np.quantile(np.array(dists), q))
+                    except Exception:
+                        pass
+                    st.caption(f"ε set to q={q:.2f} quantile: {st.session_state.abc_epsilon:.3f}")
 
-            # Acceptance stats
-            if dists is not None and len(dists) > 0:
-                acc_count = int(np.sum(np.array(dists) <= float(st.session_state.abc_epsilon)))
-                total = len(dists)
-                rate = acc_count / total if total > 0 else 0.0
-                st.caption(f"Accepted: {acc_count}/{total} (rate {100*rate:.1f}%)")
+                # Acceptance stats
+                if dists is not None and len(dists) > 0:
+                    acc_count = int(np.sum(np.array(dists) <= float(st.session_state.abc_epsilon)))
+                    total = len(dists)
+                    rate = acc_count / total if total > 0 else 0.0
+                    st.caption(f"Accepted: {acc_count}/{total} (rate {100*rate:.1f}%)")
 
-            # Option to show only accepted
-            if "only_accepted" not in st.session_state:
-                st.session_state.only_accepted = False
-            st.session_state.only_accepted = st.checkbox("Show only accepted", value=st.session_state.only_accepted)
+                # Option to show only accepted
+                if "only_accepted" not in st.session_state:
+                    st.session_state.only_accepted = False
+                st.session_state.only_accepted = st.checkbox("Show only accepted", value=st.session_state.only_accepted)
 
-            # PPC controls
-            if "ppc_n" not in st.session_state:
-                st.session_state.ppc_n = 500
-            st.session_state.ppc_n = st.slider("N posterior predictive samples", min_value=50, max_value=5000, value=int(st.session_state.ppc_n), step=50)
+                # PPC controls
+                if "ppc_n" not in st.session_state:
+                    st.session_state.ppc_n = 500
+                st.session_state.ppc_n = st.slider("N posterior predictive samples", min_value=50, max_value=5000, value=int(st.session_state.ppc_n), step=50)
 
         # Canvas info
         if not _CANVAS_AVAILABLE:
@@ -415,34 +449,111 @@ def main():
                     "selectable": False, "evented": False
                 })
 
-            canvas = st_canvas(
-                key=f"param-canvas-{st.session_state.canvas_key}",
-                fill_color="#1f77b466",
-                stroke_width=2,
-                stroke_color="#1f77b4",
-                background_color="#FFFFFF",
-                update_streamlit=True,
-                height=H,
-                width=W,
-                drawing_mode="point",
-                initial_drawing={"version": "4.4.0", "objects": init_objs},
-                display_toolbar=True,
-            )
-            try:
-                data = canvas.json_data or {}
-                objs = data.get("objects", [])
-                if len(objs) > len(init_objs):
-                    # New point was added; use the last object
-                    last = objs[-1]
-                    left_px = float(last.get("left", 0.0))
-                    top_px = float(last.get("top", 0.0))
-                    new_theta_from_click = canvas_to_theta(left_px, top_px, W, H, bounds)
-            except Exception:
-                pass
+            if _CANVAS_AVAILABLE and st_canvas is not None:
+                canvas = st_canvas(
+                    key=f"param-canvas-{st.session_state.canvas_key}",
+                    fill_color="#1f77b466",
+                    stroke_width=2,
+                    stroke_color="#1f77b4",
+                    background_color="#FFFFFF",
+                    update_streamlit=True,
+                    height=H,
+                    width=W,
+                    drawing_mode="point",
+                    initial_drawing={"version": "4.4.0", "objects": init_objs},
+                    display_toolbar=True,
+                )
+                # Handle canvas clicks more robustly to prevent flashing
+                if canvas.json_data is not None:
+                    try:
+                        data = canvas.json_data
+                        objs = data.get("objects", [])
+                        current_count = len(objs)
+                        current_time = time.time()
+                        
+                        # Only process new clicks, not every rerun, and throttle rapid clicks
+                        if (current_count > st.session_state._canvas_objs_count and 
+                            current_time - st.session_state.last_click_time > 0.5):  # 500ms throttle
+                            # Get the most recent object (the new click)
+                            last = objs[-1]
+                            if last.get("type") == "circle":  # Only process actual click points
+                                left_px = float(last.get("left", 0.0))
+                                top_px = float(last.get("top", 0.0))
+                                new_theta_from_click = canvas_to_theta(left_px, top_px, W, H, bounds)
+                                st.session_state._canvas_objs_count = current_count
+                                st.session_state.last_click_time = current_time
+                    except Exception:
+                        pass
+            else:
+                st.warning("Canvas drawing not available. Install streamlit-drawable-canvas for interactive parameter selection.")
 
-        # If we captured a click, add it
+        else:
+            # Fallback: render θ scatter with Plotly/Matplotlib when canvas is unavailable
+            gt_theta_plot = (
+                tuple(st.session_state.gt_theta)
+                if (st.session_state.show_gt_theta and st.session_state.gt_theta is not None)
+                else None
+            )
+            eps = float(st.session_state.abc_epsilon) if "abc_epsilon" in st.session_state else None
+            if _PLOTLY_AVAILABLE:
+                fig_theta = plot_scatter_plotly(
+                    st.session_state.thetas,
+                    "Parameter space (θ)",
+                    bounds,
+                    gt_theta_plot,
+                    eps,
+                    acceptance_mask,
+                    prev_name="previous",
+                    curr_name="current",
+                    crosshair_xy=None,
+                    fade_prev_alphas=fade_prev_alphas,
+                    only_accepted=bool(st.session_state.only_accepted),
+                )
+                if fig_theta is not None:
+                    st.caption("Click on the plot to add a θ.")
+                    if _PLOTLY_EVENTS_AVAILABLE and plotly_events is not None:
+                        # Capture click in data coordinates
+                        events = plotly_events(
+                            fig_theta,
+                            click_event=True,
+                            hover_event=False,
+                            select_event=False,
+                            key=f"theta-plot-events-{st.session_state.canvas_key}",
+                        )
+                        if events:
+                            ev = events[0]
+                            try:
+                                x = float(ev.get("x"))
+                                y = float(ev.get("y"))
+                                # Clamp to bounds and accept
+                                x = min(max(x, bounds.x_min), bounds.x_max)
+                                y = min(max(y, bounds.y_min), bounds.y_max)
+                                new_theta_from_click = np.array([x, y], dtype=float)
+                            except Exception:
+                                pass
+                    else:
+                        st.plotly_chart(fig_theta, use_container_width=True)
+            elif _MATPLOTLIB_AVAILABLE:
+                fig_theta_m = plot_scatter_matplotlib(
+                    st.session_state.thetas,
+                    "Parameter space (θ)",
+                    bounds,
+                    gt_theta_plot,
+                    eps,
+                    acceptance_mask,
+                    prev_name="previous",
+                    curr_name="current",
+                    crosshair_xy=None,
+                    fade_prev_alphas=fade_prev_alphas,
+                    only_accepted=bool(st.session_state.only_accepted),
+                )
+                if fig_theta_m is not None:
+                    st.pyplot(fig_theta_m, clear_figure=True)
+
+        # If we captured a click, add it and rerun to update display
         if new_theta_from_click is not None:
             add_sample(new_theta_from_click, sim_name, noise_sigma, bounds)
+            st.rerun()
         # Removed 1D parameter histograms; projections added in Posterior view
 
         # Posterior view (accepted θ only)
@@ -508,7 +619,7 @@ def main():
                     # Main density
                     if th_arr.shape[0] >= 3:
                         Xg, Yg, Zg = kde2d_grid(th_arr, bounds, gridsize=100)
-                        ax_main.imshow(Zg.T, extent=[bounds.x_min, bounds.x_max, bounds.y_min, bounds.y_max],
+                        ax_main.imshow(Zg.T, extent=(bounds.x_min, bounds.x_max, bounds.y_min, bounds.y_max),
                                        origin='lower', cmap='viridis', alpha=0.8, aspect='auto')
                     ax_main.scatter(th_arr[:, 0], th_arr[:, 1], s=10, c=(0.17, 0.63, 0.17, 0.8))
                     ax_main.plot(pts[:, 0], pts[:, 1], c="#2ca02c", lw=2)
@@ -634,9 +745,10 @@ def main():
                     fig_ppc.update_yaxes(range=[ppc_bounds.y_min, ppc_bounds.y_max], showgrid=True)
                     st.plotly_chart(fig_ppc, use_container_width=True)
                 elif _MATPLOTLIB_AVAILABLE:
+                    import matplotlib.pyplot as plt  # type: ignore
                     figppc, axppc = plt.subplots(figsize=(5.0, 3.0))
                     Xg, Yg, Zg = kde2d_grid(ppc_x, ppc_bounds, gridsize=100)
-                    im = axppc.imshow(Zg.T, extent=[ppc_bounds.x_min, ppc_bounds.x_max, ppc_bounds.y_min, ppc_bounds.y_max], origin='lower', cmap='plasma', alpha=0.85, aspect='auto')
+                    im = axppc.imshow(Zg.T, extent=(ppc_bounds.x_min, ppc_bounds.x_max, ppc_bounds.y_min, ppc_bounds.y_max), origin='lower', cmap='plasma', alpha=0.85, aspect='auto')
                     axppc.scatter(ppc_x[:,0], ppc_x[:,1], s=6, c=(0.12,0.47,0.71,0.35))
                     if st.session_state.gt_y is not None:
                         axppc.scatter([float(st.session_state.gt_y[0])], [float(st.session_state.gt_y[1])], s=80, c='#FFD700', marker='*')

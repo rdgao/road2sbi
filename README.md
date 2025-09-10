@@ -1,16 +1,16 @@
-# SBI: Parameters → Simulation (Streamlit)
+# road2sbi: Parameters → Simulation (Streamlit)
 
 Interactive demo where you start with a hidden ground-truth parameter θ_true and a random observation xₒ. Click in the parameter panel to propose θ and see the corresponding simulation x; aim to get close to xₒ. Toggle to reveal θ_true.
 
 ## Fast setup (conda + uv, Python 3.12)
 
 ```bash
-cd sbi-tut
-conda create -n sbi-tut python=3.12 -y   # minimal, just Python
-conda activate sbi-tut
+cd road2sbi
+conda create -n road2sbi python=3.12 -y   # minimal, just Python
+conda activate road2sbi
 python -m pip install -U uv               # bootstrap uv once
 uv pip install --system -r requirements.txt
-streamlit run 1-rej_abc_demo.py
+streamlit run 1-rej_abc_app.py
 ```
 
 Optionally, start notebooks in the same env:
@@ -22,12 +22,12 @@ jupyter lab
 ## Alternative (pip virtualenv + uv)
 
 ```bash
-cd sbi-tut
+cd road2sbi
 python -m venv .venv
 source .venv/bin/activate   # Windows: .venv\\Scripts\\activate
 python -m pip install -U uv
 uv pip install -r requirements.txt
-streamlit run 1-rej_abc_demo.py
+streamlit run 1-rej_abc_app.py
 ```
 
 ## Notes
@@ -38,22 +38,24 @@ streamlit run 1-rej_abc_demo.py
 - Click in θ-space (or use 'Random guess') to simulate x; compare to xₒ.
 - Use 'New observation' to resample θ_true and xₒ; toggle 'Show ground truth θ_true' to reveal the answer.
 
-## Rejection ABC demo (1-rej_abc_demo.py)
+## Rejection ABC demo (1-rej_abc_app.py)
 
 This app now uses a lightweight modular structure to keep concerns separated:
 
-- `abc_utils.py`:
+- `utils.py` (was `abc_utils.py`):
   - Core data structures and helpers: `Bounds2D`, nice ticks, canvas↔θ mapping, 2D KDE (`kde2d_grid`), covariance ellipse points, distances and acceptance masks.
-- `abc_simulators.py`:
+- `simulators.py` (was `abc_simulators.py`):
   - All 2D→2D simulators and preprocessing: Linear Gaussian, Banana, Two Moons, Circle, Spiral, Rings, Pinwheel, S‑Curve, Checkerboard. Also `get_simulator` and `preprocess_theta`.
-- `abc_plotting.py`:
-  - Plot helpers for both Plotly and Matplotlib, returning figure objects. Used by the main app to render θ and x panels with consistent styles.
+- `plot_utils.py` (merged `abc_plotting.py` and `demo2_plotting.py`):
+  - Plot helpers for both Plotly and Matplotlib used across apps (2D scatter and 1D density figures).
+
+Backward‑compat shims remain for `abc_utils.py`, `abc_simulators.py`, and plotting imports so existing notebooks/tests keep working.
 
 Run the demo:
 
 ```bash
-cd sbi-tut
-streamlit run 1-rej_abc_demo.py
+cd road2sbi
+streamlit run 1-rej_abc_app.py
 ```
 
 Feature highlights:
@@ -70,7 +72,7 @@ For faster dependency management, this repo includes `uv`.
 - In the conda env (recommended):
 
 ```bash
-conda activate sbi-tut
+conda activate road2sbi
 uv pip install --system -r requirements.txt -U
 ```
 
@@ -86,8 +88,8 @@ uv pip install -r requirements.txt
 Explore simple 1D densities, draw N samples, then fit parametric/non‑parametric estimators (Gaussian MLE, GMM via EM, Gaussian KDE) and compare fits. Tip: with "Gaussian (User)", try optimizing the mean log‑likelihood by choosing μ and σ interactively.
 
 ```bash
-cd sbi-tut
-streamlit run 2-density_estimation_1d.py
+cd road2sbi
+streamlit run 3-density_estimation_1d_app.py
 ```
 
 What’s included
@@ -134,15 +136,18 @@ Suggested explorations
 Visualize conditional samples (theta, x) from various simulators p(x | theta), with homoscedastic and heteroscedastic noise options.
 
 ```bash
-cd sbi-tut
-streamlit run 3-conditional_density_demo.py
+cd road2sbi
+streamlit run 4-conditional_density_app.py
 ```
 
 What’s included
-- Mappings: Linear; Sine; Sine + Line; Projected Circle; Projected Two Moons; Projected Spiral; Projected Checkerboard.
+- Mappings: Linear; Sine; Sine + Line; Projected Circle; Projected Two Moons; Projected Spiral.
 - Noise: Homoscedastic, Linear |theta|, U‑shape (quadratic), and Sinusoidal heteroscedasticity.
 - Theta sampling: Uniform or fixed grid over a selectable range; choose total sample count.
 - Plotting: 2D scatter of (theta, x) using Plotly if available, with Matplotlib fallback.
+ - Estimator: Linear Least Squares (optional “Inverse regression (f(x) → θ)” toggle).
+   - Model predicted conditional: forward shows x|θ* in the right panel; inverse shows θ|x* in the top panel.
+ - Noise overlay: optional faint purple band for the true ±σ(θ).
 
 Tips
 - Try grid sampling to see how p(x | theta) changes across theta consistently.

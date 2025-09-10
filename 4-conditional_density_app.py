@@ -6,28 +6,12 @@ import streamlit as st
 
 
 # Optional plotting backends
-try:
-    import plotly.graph_objects as go  # type: ignore
+import plotly.graph_objects as go  # type: ignore
 
-    _PLOTLY_AVAILABLE = True
-except Exception:
-    _PLOTLY_AVAILABLE = False
-
-try:
-    import matplotlib.pyplot as plt  # type: ignore
-
-    _MATPLOTLIB_AVAILABLE = True
-except Exception:
-    _MATPLOTLIB_AVAILABLE = False
+# Matplotlib support removed for this app to simplify UI
 
 
-# Reuse some fun 2D->1D projection samplers from existing module
-from density1d_models import (
-    sample_arcsine_projected_circle,
-    sample_proj_twomoons_x,
-    sample_proj_spiral_x,
-    sample_proj_checkerboard_x,
-)
+# (Removed unused 2D→1D projection sampler imports)
 
 
 st.set_page_config(page_title="Conditional Density Demo", layout="wide")
@@ -119,14 +103,7 @@ def sim_sine_plus_line(theta: np.ndarray, params: Dict[str, float], rng: np.rand
     return mu + rng.normal(0.0, 1.0, size=theta.shape) * np.maximum(sig, 1e-9)
 
 
-def _shape_additive(theta: np.ndarray, draw_shape: Callable[[int, np.random.Generator], np.ndarray], params: Dict[str, float], rng: np.random.Generator, sigma_fn: Callable[[np.ndarray], np.ndarray]) -> np.ndarray:
-    # Generic helper: shift(theta) + scale * shape_sample + measurement noise
-    shift = float(params.get("shift", 0.0))
-    scale = float(params.get("scale", 1.0))
-    z = draw_shape(theta.size, rng)
-    mu = shift + scale * z
-    sig = sigma_fn(theta)
-    return mu + rng.normal(0.0, 1.0, size=theta.shape) * np.maximum(sig, 1e-9)
+    
 
 
 def sim_circle_curve(theta: np.ndarray, params: Dict[str, float], rng: np.random.Generator, sigma_fn: Callable[[np.ndarray], np.ndarray]) -> np.ndarray:
@@ -192,22 +169,6 @@ def sim_spiral_curve(theta: np.ndarray, params: Dict[str, float], rng: np.random
     return x0 + rng.normal(0.0, 1.0, size=theta.shape) * np.maximum(sig, 1e-9)
 
 
-def sim_checkerboard_curve(theta: np.ndarray, params: Dict[str, float], rng: np.random.Generator, sigma_fn: Callable[[np.ndarray], np.ndarray]) -> np.ndarray:
-    # Vertical stripes along theta, with two x levels ±delta per stripe
-    m = max(int(params.get("m", 4)), 1)
-    delta = float(params.get("delta", 0.4))
-    shift = float(params.get("shift", 0.0))
-    scale = float(params.get("scale", 1.0))
-    th_min = float(np.min(theta))
-    th_max = float(np.max(theta))
-    width = max(th_max - th_min, 1e-9)
-    # Stripe index in [0, m-1]
-    idx = np.floor((theta - th_min) / width * m).astype(int)
-    idx = np.clip(idx, 0, m - 1)
-    sgn = np.where(rng.uniform(0.0, 1.0, size=theta.shape) < 0.5, 1.0, -1.0)
-    x0 = shift + scale * (sgn * delta)
-    sig = sigma_fn(theta)
-    return x0 + rng.normal(0.0, 1.0, size=theta.shape) * np.maximum(sig, 1e-9)
 
 
 SIMS: Dict[str, Callable[[np.ndarray, Dict[str, float], np.random.Generator, Callable[[np.ndarray], np.ndarray]], np.ndarray]] = {
@@ -224,7 +185,6 @@ SIMS: Dict[str, Callable[[np.ndarray, Dict[str, float], np.random.Generator, Cal
 def plot_scatter(
     theta: np.ndarray,
     x: np.ndarray,
-    use_plotly: bool = True,
     theta_star: float = None,
     x_star: float = None,
     show_guides: bool = True,
@@ -232,54 +192,60 @@ def plot_scatter(
     cond_mode: str = "Window",
     d_theta: float = 0.0,
     d_x: float = 0.0,
+    reg_overlay: Dict[str, np.ndarray] = None,
+    rev_overlay: Dict[str, np.ndarray] = None,
+    show_reg_mean: bool = True,
+    show_reg_band1: bool = True,
+    show_reg_band2: bool = False,
+    noise_overlay: Dict[str, np.ndarray] = None,
 ):
     # Default horizontal bounds for theta axis (visual zoom only)
     x_min, x_max = -5.0, 5.0
     # Default vertical bounds for data x to align with side histogram
     y_min, y_max = -2.5, 2.5
-    if use_plotly and _PLOTLY_AVAILABLE:
-        fig = go.Figure()
-        fig.add_trace(
-            go.Scatter(
-                x=theta,
-                y=x,
-                mode="markers",
-                marker=dict(size=6, opacity=0.6, color="#1f77b4"),
-                name="samples",
-            )
+    # Plot main 2D scatter with Plotly
+    fig = go.Figure()
+    fig.add_trace(
+        go.Scatter(
+            x=theta,
+            y=x,
+            mode="markers",
+            marker=dict(size=6, opacity=0.6, color="#1f77b4"),
+            name="samples",
         )
-        fig.update_layout(
-            xaxis_title="θ",
-            yaxis_title="x",
-            margin=dict(l=10, r=10, t=30, b=10),
-            height=544,
+    )
+    fig.update_layout(
+        xaxis_title="θ",
+        yaxis_title="x",
+        margin=dict(l=10, r=10, t=30, b=10),
+        height=544,
+    )
+    # Apply axis bounds
+    fig.update_xaxes(range=[x_min, x_max])
+    fig.update_yaxes(range=[y_min, y_max])
+    # Optional guide lines at θ* and x*
+    if show_guides and (theta_star is not None):
+        fig.add_shape(
+            type="line",
+            x0=float(theta_star),
+            x1=float(theta_star),
+            y0=0,
+            y1=1,
+            xref="x",
+            yref="paper",
+            line=dict(color="rgba(44,160,44,0.9)", width=1.5, dash="dash"),
         )
-        # Apply axis bounds
-        fig.update_xaxes(range=[x_min, x_max])
-        fig.update_yaxes(range=[y_min, y_max])
-        # Optional guide lines at θ* and x*
-        if show_guides and (theta_star is not None):
-            fig.add_shape(
-                type="line",
-                x0=float(theta_star),
-                x1=float(theta_star),
-                y0=0,
-                y1=1,
-                xref="x",
-                yref="paper",
-                line=dict(color="rgba(44,160,44,0.9)", width=1.5, dash="dash"),
-            )
-        if show_guides and (x_star is not None):
-            fig.add_shape(
-                type="line",
-                x0=x_min,
-                x1=x_max,
-                y0=float(x_star),
-                y1=float(x_star),
-                xref="x",
-                yref="y",
-                line=dict(color="rgba(214,39,40,0.8)", width=1.5, dash="dash"),
-            )
+    if show_guides and (x_star is not None):
+        fig.add_shape(
+            type="line",
+            x0=x_min,
+            x1=x_max,
+            y0=float(x_star),
+            y1=float(x_star),
+            xref="x",
+            yref="y",
+            line=dict(color="rgba(214,39,40,0.8)", width=1.5, dash="dash"),
+        )
         # Optional shaded windows (only in Window mode)
         if shade_windows and cond_mode == "Window":
             if theta_star is not None and d_theta > 0:
@@ -291,7 +257,7 @@ def plot_scatter(
                     y1=1,
                     xref="x",
                     yref="paper",
-                    fillcolor="rgba(255,165,0,0.15)",
+                    fillcolor="rgba(44,160,44,0.12)",
                     line=dict(width=0),
                 )
             if x_star is not None and d_x > 0:
@@ -303,32 +269,105 @@ def plot_scatter(
                     y1=float(x_star + d_x),
                     xref="x",
                     yref="y",
-                    fillcolor="rgba(255,165,0,0.15)",
+                    fillcolor="rgba(214,39,40,0.12)",
                     line=dict(width=0),
                 )
-        st.plotly_chart(fig, use_container_width=True)
-        return
-
-    # Fallback to Matplotlib
-    if _MATPLOTLIB_AVAILABLE:
-        fig, ax = plt.subplots(figsize=(5.2, 5.2))
-        ax.scatter(theta, x, s=18, c="#1f77b4", alpha=0.65, edgecolors="none")
-        ax.set_xlabel("θ")
-        ax.set_ylabel("x")
-        ax.set_xlim(x_min, x_max)
-        ax.set_ylim(y_min, y_max)
-        if show_guides and (theta_star is not None):
-            ax.axvline(float(theta_star), color="#2ca02c", linestyle="--", linewidth=1.2)
-        if show_guides and (x_star is not None):
-            ax.axhline(float(x_star), color="#d62728", linestyle="--", linewidth=1.2)
-        if shade_windows and cond_mode == "Window":
-            if theta_star is not None and d_theta > 0:
-                ax.axvspan(float(theta_star - d_theta), float(theta_star + d_theta), color=(1.0, 0.65, 0.0, 0.15))
-            if x_star is not None and d_x > 0:
-                ax.axhspan(float(x_star - d_x), float(x_star + d_x), color=(1.0, 0.65, 0.0, 0.15))
-        st.pyplot(fig)
-    else:
-        st.write("Neither Plotly nor Matplotlib available for plotting.")
+    # Optional regression overlay
+    if reg_overlay is not None and "theta_grid" in reg_overlay and "mu" in reg_overlay and "sigma" in reg_overlay:
+        tg = np.asarray(reg_overlay["theta_grid"]).astype(float)
+        mu = np.asarray(reg_overlay["mu"]).astype(float)
+        sg = np.maximum(np.asarray(reg_overlay["sigma"]).astype(float), 1e-9)
+        # Bands (draw wider first)
+        if show_reg_band2:
+            fig.add_trace(
+                go.Scatter(
+                    x=np.concatenate([tg, tg[::-1]]),
+                    y=np.concatenate([mu + 2 * sg, (mu - 2 * sg)[::-1]]),
+                    fill="toself",
+                    fillcolor="rgba(255,215,0,0.12)",
+                    line=dict(color="rgba(0,0,0,0)"),
+                    name="±2σ",
+                    hoverinfo="skip",
+                )
+            )
+        if show_reg_band1:
+            fig.add_trace(
+                go.Scatter(
+                    x=np.concatenate([tg, tg[::-1]]),
+                    y=np.concatenate([mu + sg, (mu - sg)[::-1]]),
+                    fill="toself",
+                    fillcolor="rgba(255,215,0,0.20)",
+                    line=dict(color="rgba(0,0,0,0)"),
+                    name="±1σ",
+                    hoverinfo="skip",
+                )
+            )
+        if show_reg_mean:
+            fig.add_trace(
+                go.Scatter(x=tg, y=mu, mode="lines", line=dict(color="#FFD700", width=2.2), name="mean")
+            )
+    # Optional reverse-regression overlay: θ ≈ a·x + b (plot horizontal orientation)
+    if rev_overlay is not None and "x_grid" in rev_overlay and "mu" in rev_overlay and "sigma" in rev_overlay:
+        xg = np.asarray(rev_overlay["x_grid"]).astype(float)
+        mu_t = np.asarray(rev_overlay["mu"]).astype(float)
+        sg_t = np.maximum(np.asarray(rev_overlay["sigma"]).astype(float), 1e-9)
+        if show_reg_band2:
+            fig.add_trace(
+                go.Scatter(
+                    x=np.concatenate([mu_t + 2 * sg_t, (mu_t - 2 * sg_t)[::-1]]),
+                    y=np.concatenate([xg, xg[::-1]]),
+                    fill="toself",
+                    fillcolor="rgba(255,215,0,0.12)",
+                    line=dict(color="rgba(0,0,0,0)"),
+                    name="±2σ (θ|x)",
+                    hoverinfo="skip",
+                )
+            )
+        if show_reg_band1:
+            fig.add_trace(
+                go.Scatter(
+                    x=np.concatenate([mu_t + sg_t, (mu_t - sg_t)[::-1]]),
+                    y=np.concatenate([xg, xg[::-1]]),
+                    fill="toself",
+                    fillcolor="rgba(255,215,0,0.20)",
+                    line=dict(color="rgba(0,0,0,0)"),
+                    name="±1σ (θ|x)",
+                    hoverinfo="skip",
+                )
+            )
+        if show_reg_mean:
+            fig.add_trace(
+                go.Scatter(x=mu_t, y=xg, mode="lines", line=dict(color="#FFD700", width=2.2), name="mean (θ|x)")
+            )
+    # Optional true noise amplitude overlay (±σ(θ)) as faint purple band
+    if noise_overlay is not None and "theta_grid" in noise_overlay and "sigma" in noise_overlay:
+        tg = np.asarray(noise_overlay["theta_grid"]).astype(float)
+        sg = np.maximum(np.asarray(noise_overlay["sigma"]).astype(float), 1e-9)
+        fig.add_trace(
+            go.Scatter(
+                x=np.concatenate([tg, tg[::-1]]),
+                y=np.concatenate([sg, (-sg)[::-1]]),
+                fill="toself",
+                fillcolor="rgba(148,103,189,0.18)",
+                line=dict(color="rgba(0,0,0,0)"),
+                name="±σ true",
+                hoverinfo="skip",
+            )
+        )
+    # Keep legend inside axes to avoid layout shifts
+    fig.update_layout(
+        legend=dict(
+            x=0.02,
+            y=0.98,
+            xanchor="left",
+            yanchor="top",
+            bgcolor="rgba(255,255,255,0.6)",
+            bordercolor="rgba(0,0,0,0.2)",
+            borderwidth=1,
+        )
+    )
+    st.plotly_chart(fig, use_container_width=True)
+    return
 
 
 # -------- Simple 1D KDE helpers --------
@@ -369,6 +408,31 @@ def kde_gaussian_weighted_1d(samples: np.ndarray, weights: np.ndarray, grid: np.
     return (vals @ w) / h
 
 
+# -------- Simple CDE models (Gaussian) --------
+def fit_linear_gaussian(theta: np.ndarray, x: np.ndarray) -> Tuple[float, float, float]:
+    th_all = np.asarray(theta, dtype=float).reshape(-1)
+    y_all = np.asarray(x, dtype=float).reshape(-1)
+    m = np.isfinite(th_all) & np.isfinite(y_all)
+    th = th_all[m].reshape(-1, 1)
+    y = y_all[m].reshape(-1, 1)
+    n = th.shape[0]
+    if n < 2:
+        # Fallback: insufficient data
+        mu = float(np.nanmean(y_all)) if np.any(np.isfinite(y_all)) else 0.0
+        sig = float(np.nanstd(y_all)) if np.any(np.isfinite(y_all)) else 1.0
+        return 0.0, mu, max(sig, 1e-9)
+    X = np.hstack([th, np.ones_like(th)])
+    beta, *_ = np.linalg.lstsq(X, y, rcond=None)
+    a = float(beta[0, 0])
+    b = float(beta[1, 0])
+    resid = (y - X @ beta).ravel()
+    sigma = float(np.sqrt(np.nanmean(resid * resid) + 1e-12))
+    return a, b, max(sigma, 1e-9)
+
+
+    
+
+
 # -------- UI and main --------
 def main():
     ensure_state()
@@ -397,6 +461,29 @@ def main():
                 st.slider("kernel h(θ*)", 0.01, 2.0, float(st.session_state.cond_h_theta_star), 0.01, key="cond_h_theta_star")
                 st.slider("kernel h(x*)", 0.01, 2.0, float(st.session_state.cond_h_x_star), 0.01, key="cond_h_x_star")
             st.slider("KDE bandwidth scale", 0.2, 1.5, float(st.session_state.cond_kde_bw_scale), 0.05, key="cond_kde_bw_scale")
+
+    # Conditional density estimation (CDE) controls
+    with st.sidebar:
+        st.subheader("Conditional density estimation")
+        # Inverse regression toggle above the estimator dropdown
+        st.checkbox("Inverse regression (f(x) → θ)", value=bool(st.session_state.get("cde_reverse", False)), key="cde_reverse")
+        with st.expander("Estimator + options", expanded=False):
+            cde_model = st.selectbox(
+                "Estimator",
+                ["None", "Linear Least Squares"],
+                index=0,
+            )
+            _disabled = (cde_model == "None")
+            show_reg_mean = st.checkbox("Show mean line", value=True, disabled=_disabled)
+            show_reg_band1 = st.checkbox("Show ±1σ band", value=True, disabled=_disabled)
+            show_reg_band2 = st.checkbox("Show ±2σ band", value=False, disabled=_disabled)
+            show_model_slice = st.checkbox("Show model predicted conditional", value=True, disabled=_disabled)
+        # Hint about where the model conditional appears
+        if cde_model != "None":
+            if bool(st.session_state.get("cde_reverse", False)):
+                st.caption("Model predicted conditional: θ|x* (top panel).")
+            else:
+                st.caption("Model predicted conditional: x|θ* (right panel).")
 
     with st.sidebar:
         # Simulator: main option exposed
@@ -462,6 +549,7 @@ def main():
                 theta0 = st.slider("center θ0", thmin, thmax, min(max(0.0, thmin), thmax), 0.05, key="noise_theta0")
             if noise_kind == "Sinusoidal":
                 period = st.slider("period (sin)", 0.2, 8.0, 4.0, 0.1, key="noise_period")
+            st.checkbox("Show true σ(θ) overlay", value=False, key="noise_show_sigma")
 
         # Theta sampling in dropdown
         st.subheader("Parameter (θ) sampling")
@@ -502,6 +590,14 @@ def main():
     # Run simulator
     sim_fn = SIMS[sim_name]
     x = sim_fn(theta, sim_params, rng, sigma_fn)
+    # Drop invalid samples (e.g., undefined regions for some simulators)
+    valid = np.isfinite(theta) & np.isfinite(x)
+    if not np.all(valid):
+        theta = theta[valid]
+        x = x[valid]
+    if theta.size == 0:
+        st.warning("No valid samples for current settings. Adjust θ range or simulator parameters.")
+        return
 
     # Read conditioning values from state
     theta_star = float(st.session_state.cond_theta_star)
@@ -525,78 +621,91 @@ def main():
         w_theta = np.exp(-0.5 * ((theta - float(theta_star)) / float(h_theta_star)) ** 2)
         w_x = np.exp(-0.5 * ((x - float(x_star)) / float(h_x_star)) ** 2)
 
+    # Fit CDE model if requested
+    reg_overlay = None
+    rev_overlay = None
+    model_params_text = ""
+    if cde_model == "Linear Least Squares":
+        if bool(st.session_state.get("cde_reverse", False)):
+            # Fit θ ~ a x + b
+            aa, bb, ss = fit_linear_gaussian(x, theta)
+            xg = np.linspace(-2.5, 2.5, 200)
+            mu_t = aa * xg + bb
+            sg_t = np.full_like(mu_t, ss)
+            rev_overlay = {"x_grid": xg, "mu": mu_t, "sigma": sg_t}
+            model_params_text = f"θ mean: a={aa:.3f}, b={bb:.3f}; σθ={ss:.3f}"
+        else:
+            # Fit x ~ a θ + b
+            aa, bb, ss = fit_linear_gaussian(theta, x)
+            thg = np.linspace(float(st.session_state.theta_min), float(st.session_state.theta_max), 200)
+            mu = aa * thg + bb
+            sg = np.full_like(mu, ss)
+            reg_overlay = {"theta_grid": thg, "mu": mu, "sigma": sg}
+            model_params_text = f"mean: a={aa:.3f}, b={bb:.3f}; σx={ss:.3f}"
+
+    # Optional noise overlay
+    noise_overlay = None
+    if bool(st.session_state.get("noise_show_sigma", False)):
+        thg_no = np.linspace(float(st.session_state.theta_min), float(st.session_state.theta_max), 200)
+        sg_no = sigma_fn(thg_no)
+        noise_overlay = {"theta_grid": thg_no, "sigma": sg_no}
+
     # Row layout: top θ|x* above the main scatter in the same column, and right x|θ*
     col_main, col_right = st.columns([5, 2])
     with col_main:
         # Top panel: p(θ | x*) aligned width with main
-        if _PLOTLY_AVAILABLE:
-            fig_top = go.Figure()
-            if show_marginals:
-                grid_th_m = np.linspace(theta_min, theta_max, 400)
-                h_th_m = silverman_bandwidth(theta)
-                kde_th_m = kde_gaussian_1d(theta, grid_th_m, h_th_m)
-                fig_top.add_trace(go.Scatter(x=grid_th_m, y=kde_th_m, mode="lines", line=dict(color="rgba(100,100,100,0.9)", width=1.5), name="marginal θ"))
-            if cond_mode == "Window":
-                if th_sel.size:
-                    fig_top.add_trace(
-                        go.Histogram(x=th_sel, histnorm="probability density", nbinsx=40, marker_color="rgba(31,119,180,0.55)", name="hist")
-                    )
-                    grid_th = np.linspace(theta_min, theta_max, 400)
-                    h_th = silverman_bandwidth(th_sel) * float(kde_bw_scale)
-                    kde_th = kde_gaussian_1d(th_sel, grid_th, h_th)
-                    fig_top.add_trace(go.Scatter(x=grid_th, y=kde_th, mode="lines", line=dict(color="#d62728", width=2), name="θ|x*"))
-            else:
+        fig_top = go.Figure()
+        if show_marginals:
+            grid_th_m = np.linspace(theta_min, theta_max, 400)
+            h_th_m = silverman_bandwidth(theta)
+            kde_th_m = kde_gaussian_1d(theta, grid_th_m, h_th_m)
+            fig_top.add_trace(go.Scatter(x=grid_th_m, y=kde_th_m, mode="lines", line=dict(color="rgba(100,100,100,0.9)", width=1.5), name="marginal θ"))
+        if cond_mode == "Window":
+            if th_sel.size:
+                fig_top.add_trace(
+                    go.Histogram(x=th_sel, histnorm="probability density", nbinsx=40, marker_color="rgba(31,119,180,0.55)", name="hist")
+                )
                 grid_th = np.linspace(theta_min, theta_max, 400)
-                kde_th = kde_gaussian_weighted_1d(theta, w_x, grid_th, silverman_bandwidth(theta) * float(kde_bw_scale))
-                fig_top.add_trace(go.Scatter(x=grid_th, y=kde_th, mode="lines", line=dict(color="#d62728", width=2), name="θ|x* (kernel)"))
-            fig_top.update_layout(
-                margin=dict(l=10, r=10, t=10, b=10),
-                height=160,
-                xaxis_title="θ",
-                yaxis_title="density",
-                legend=dict(
-                    x=0.99,
-                    xanchor="right",
-                    y=0.98,
-                    yanchor="top",
-                    orientation="h",
-                    bgcolor="rgba(255,255,255,0.6)",
-                    bordercolor="rgba(0,0,0,0.2)",
-                    borderwidth=1,
-                ),
-            )
-            fig_top.update_xaxes(range=[-5.0, 5.0], showticklabels=False, ticks="outside", ticklen=6)
-            st.plotly_chart(fig_top, use_container_width=True)
-        elif _MATPLOTLIB_AVAILABLE:
-            fig_top, ax_top = plt.subplots(figsize=(6.0, 1.6))
-            if show_marginals:
-                grid_th_m = np.linspace(theta_min, theta_max, 400)
-                h_th_m = silverman_bandwidth(theta)
-                kde_th_m = kde_gaussian_1d(theta, grid_th_m, h_th_m)
-                ax_top.plot(grid_th_m, kde_th_m, c="0.4", lw=1.5, label="marginal θ")
-            if cond_mode == "Window":
-                if th_sel.size:
-                    ax_top.hist(th_sel, bins=40, density=True, color=(0.12, 0.47, 0.71, 0.55), label="hist")
-                    grid_th = np.linspace(theta_min, theta_max, 400)
-                    h_th = silverman_bandwidth(th_sel) * float(kde_bw_scale)
-                    kde_th = kde_gaussian_1d(th_sel, grid_th, h_th)
-                    ax_top.plot(grid_th, kde_th, c="#d62728", lw=2, label="θ|x*")
-            else:
-                grid_th = np.linspace(theta_min, theta_max, 400)
-                kde_th = kde_gaussian_weighted_1d(theta, w_x, grid_th, silverman_bandwidth(theta) * float(kde_bw_scale))
-                ax_top.plot(grid_th, kde_th, c="#d62728", lw=2, label="θ|x* (kernel)")
-            ax_top.set_xlabel("θ")
-            ax_top.set_ylabel("density")
-            if show_marginals:
-                ax_top.legend(loc="upper right", framealpha=0.6)
-            ax_top.set_xlim(-5.0, 5.0)
-            ax_top.tick_params(axis='x', labelbottom=False)
-            st.pyplot(fig_top)
+                h_th = silverman_bandwidth(th_sel) * float(kde_bw_scale)
+                kde_th = kde_gaussian_1d(th_sel, grid_th, h_th)
+                fig_top.add_trace(go.Scatter(x=grid_th, y=kde_th, mode="lines", line=dict(color="#d62728", width=2), name="θ|x*"))
+        else:
+            grid_th = np.linspace(theta_min, theta_max, 400)
+            kde_th = kde_gaussian_weighted_1d(theta, w_x, grid_th, silverman_bandwidth(theta) * float(kde_bw_scale))
+            fig_top.add_trace(go.Scatter(x=grid_th, y=kde_th, mode="lines", line=dict(color="#d62728", width=2), name="θ|x* (kernel)"))
+        # Model slice overlay p(θ|x*) when reverse regression is enabled
+        if show_model_slice and (rev_overlay is not None) and (x_star is not None):
+            mu_th = float(np.interp(float(x_star), rev_overlay["x_grid"], rev_overlay["mu"]))
+            sg_th = float(np.interp(float(x_star), rev_overlay["x_grid"], rev_overlay["sigma"]))
+            thg_m = np.linspace(theta_min, theta_max, 400)
+            pdf_th = (np.exp(-0.5 * ((thg_m - mu_th) / max(sg_th, 1e-9)) ** 2) / (np.sqrt(2.0 * np.pi) * max(sg_th, 1e-9)))
+            fig_top.add_trace(go.Scatter(x=thg_m, y=pdf_th, mode="lines", line=dict(color="#FFD700", width=2), name="model θ|x*"))
+        fig_top.update_layout(
+            margin=dict(l=10, r=10, t=10, b=10),
+            height=160,
+            xaxis_title="θ",
+            yaxis_title="density",
+            legend=dict(
+                x=0.99,
+                xanchor="right",
+                y=0.98,
+                yanchor="top",
+                orientation="h",
+                bgcolor="rgba(255,255,255,0.6)",
+                bordercolor="rgba(0,0,0,0.2)",
+                borderwidth=1,
+            ),
+        )
+        fig_top.update_xaxes(range=[-5.0, 5.0], showticklabels=False, ticks="outside", ticklen=6)
+        st.plotly_chart(fig_top, use_container_width=True)
+
+        # Optional small note about model params
+        if cde_model != "None" and model_params_text:
+            st.caption(model_params_text)
 
         plot_scatter(
             theta,
             x,
-            use_plotly=True,
             theta_star=theta_star,
             x_star=x_star,
             show_guides=True,
@@ -604,6 +713,12 @@ def main():
             cond_mode=cond_mode,
             d_theta=float(d_theta),
             d_x=float(d_x),
+            reg_overlay=reg_overlay,
+            rev_overlay=rev_overlay,
+            show_reg_mean=show_reg_mean,
+            show_reg_band1=show_reg_band1,
+            show_reg_band2=show_reg_band2,
+            noise_overlay=noise_overlay,
         )
     with col_right:
         # Spacer to align right panel with the top plot above the main scatter
@@ -613,55 +728,38 @@ def main():
             f"<div style='height: {top_height_px + spacer_extra_px}px'></div>",
             unsafe_allow_html=True,
         )
-        if _PLOTLY_AVAILABLE:
-            fig_right = go.Figure()
-            # Marginal x overlay
-            if show_marginals:
-                xg_m = np.linspace(float(np.min(x)), float(np.max(x)), 400)
-                kde_x_m = kde_gaussian_1d(x, xg_m, silverman_bandwidth(x))
-                fig_right.add_trace(go.Scatter(x=kde_x_m, y=xg_m, mode="lines", line=dict(color="rgba(100,100,100,0.9)", width=1.5), name="marginal x"))
-            if cond_mode == "Window":
-                if x_sel.size:
-                    fig_right.add_trace(
-                        go.Histogram(y=x_sel, histnorm="probability density", nbinsy=40, marker_color="rgba(31,119,180,0.55)", orientation="h", name="hist")
-                    )
-                    xg = np.linspace(float(np.min(x_sel)), float(np.max(x_sel)), 400)
-                    h_x = silverman_bandwidth(x_sel) * float(kde_bw_scale)
-                    kde_x = kde_gaussian_1d(x_sel, xg, h_x)
-                    fig_right.add_trace(go.Scatter(x=kde_x, y=xg, mode="lines", line=dict(color="#2ca02c", width=2), name="x|θ*"))
-            else:
-                # Kernel-weighted using θ distances
-                xg = np.linspace(float(np.min(x)), float(np.max(x)), 400)
-                kde_x = kde_gaussian_weighted_1d(x, w_theta, xg, silverman_bandwidth(x) * float(kde_bw_scale))
-                fig_right.add_trace(go.Scatter(x=kde_x, y=xg, mode="lines", line=dict(color="#2ca02c", width=2), name="x|θ* (kernel)"))
-            fig_right.update_layout(margin=dict(l=10, r=10, t=10, b=10), height=544, xaxis_title="density", yaxis_title="x")
-            # Match 2D panel vertical x-lims and hide y tick labels
-            fig_right.update_yaxes(range=[-2.5, 2.5], showticklabels=False, ticks="outside", ticklen=6)
-            st.plotly_chart(fig_right, use_container_width=True)
-        elif _MATPLOTLIB_AVAILABLE:
-            fig_r, ax_r = plt.subplots(figsize=(2.6, 5.2))
-            if show_marginals:
-                xg_m = np.linspace(float(np.min(x)), float(np.max(x)), 400)
-                kde_x_m = kde_gaussian_1d(x, xg_m, silverman_bandwidth(x))
-                ax_r.plot(kde_x_m, xg_m, c="0.4", lw=1.5, label="marginal x")
-            if cond_mode == "Window":
-                if x_sel.size:
-                    ax_r.hist(x_sel, bins=40, density=True, orientation="horizontal", color=(0.12, 0.47, 0.71, 0.55), label="hist")
-                    xg = np.linspace(float(np.min(x_sel)), float(np.max(x_sel)), 400)
-                    h_x = silverman_bandwidth(x_sel) * float(kde_bw_scale)
-                    kde_x = kde_gaussian_1d(x_sel, xg, h_x)
-                    ax_r.plot(kde_x, xg, c="#2ca02c", lw=2, label="x|θ*")
-            else:
-                xg = np.linspace(float(np.min(x)), float(np.max(x)), 400)
-                kde_x = kde_gaussian_weighted_1d(x, w_theta, xg, silverman_bandwidth(x) * float(kde_bw_scale))
-                ax_r.plot(kde_x, xg, c="#2ca02c", lw=2, label="x|θ* (kernel)")
-            ax_r.set_xlabel("density")
-            ax_r.set_ylabel("x")
-            ax_r.set_ylim(-2.5, 2.5)
-            ax_r.tick_params(axis='y', labelleft=False)
-            if show_marginals:
-                ax_r.legend(loc="best")
-            st.pyplot(fig_r)
+        # Right slice plot with Plotly
+        fig_right = go.Figure()
+        # Marginal x overlay
+        if show_marginals:
+            xg_m = np.linspace(float(np.min(x)), float(np.max(x)), 400)
+            kde_x_m = kde_gaussian_1d(x, xg_m, silverman_bandwidth(x))
+            fig_right.add_trace(go.Scatter(x=kde_x_m, y=xg_m, mode="lines", line=dict(color="rgba(100,100,100,0.9)", width=1.5), name="marginal x"))
+        if cond_mode == "Window":
+            if x_sel.size:
+                fig_right.add_trace(
+                    go.Histogram(y=x_sel, histnorm="probability density", nbinsy=40, marker_color="rgba(31,119,180,0.55)", orientation="h", name="hist")
+                )
+                xg = np.linspace(float(np.min(x_sel)), float(np.max(x_sel)), 400)
+                h_x = silverman_bandwidth(x_sel) * float(kde_bw_scale)
+                kde_x = kde_gaussian_1d(x_sel, xg, h_x)
+                fig_right.add_trace(go.Scatter(x=kde_x, y=xg, mode="lines", line=dict(color="#2ca02c", width=2), name="x|θ*"))
+        else:
+            # Kernel-weighted using θ distances
+            xg = np.linspace(float(np.min(x)), float(np.max(x)), 400)
+            kde_x = kde_gaussian_weighted_1d(x, w_theta, xg, silverman_bandwidth(x) * float(kde_bw_scale))
+            fig_right.add_trace(go.Scatter(x=kde_x, y=xg, mode="lines", line=dict(color="#2ca02c", width=2), name="x|θ* (kernel)"))
+        # Model slice overlay p(x|θ*) if requested (independent of cond mode)
+        if show_model_slice and (reg_overlay is not None):
+            mu_star = float(np.interp(theta_star, reg_overlay["theta_grid"], reg_overlay["mu"]))
+            sg_star = float(np.interp(theta_star, reg_overlay["theta_grid"], reg_overlay["sigma"]))
+            xg_m = np.linspace(-2.5, 2.5, 400)
+            pdf_m = (np.exp(-0.5 * ((xg_m - mu_star) / max(sg_star, 1e-9)) ** 2) / (np.sqrt(2.0 * np.pi) * max(sg_star, 1e-9)))
+            fig_right.add_trace(go.Scatter(x=pdf_m, y=xg_m, mode="lines", line=dict(color="#FFD700", width=2), name="model x|θ*"))
+        fig_right.update_layout(margin=dict(l=10, r=10, t=10, b=10), height=544, xaxis_title="density", yaxis_title="x")
+        # Match 2D panel vertical x-lims and hide y tick labels
+        fig_right.update_yaxes(range=[-2.5, 2.5], showticklabels=False, ticks="outside", ticklen=6)
+        st.plotly_chart(fig_right, use_container_width=True)
 
 if __name__ == "__main__":
     try:
