@@ -9,20 +9,10 @@ A sequence of demos and interactive apps that walk through the foundational conc
 4. **Conditional density estimation:** don't regress.
 5. **Mixture density network:** OG conditional neural density estimator.
 
-## Fast setup (conda + uv, Python 3.12)
+## Setup
 
-**Option 1: Using environment.yml (easiest, but slower)**
 ```bash
-conda env create -f environment.yml
+conda env create -f environment_conda.yml
 conda activate road2sbi
-streamlit run 1-rej_abc_app.py
-```
-
-**Option 2: Manual conda + uv (uv go vrooom)**
-```bash
-conda create -n road2sbi python=3.12 -y   # minimal, just Python
-conda activate road2sbi
-python -m pip install -U uv               # bootstrap uv once
-uv pip install --system -r requirements.txt
 streamlit run 1-rej_abc_app.py
 ```
