@@ -21,10 +21,7 @@ except Exception:
 st.set_page_config(page_title="1D Density Estimation Demo", layout="wide")
 
 
-try:
-    from plot_utils import make_plotly_figure, make_matplotlib_figure
-except Exception:
-    from road2sbi.plot_utils import make_plotly_figure, make_matplotlib_figure
+from road2sbi.plot_utils import make_plotly_figure, make_matplotlib_figure
 
 from density1d_models import (
     pdf_gaussian,

@@ -3,10 +3,7 @@ from typing import Callable, Optional
 
 import numpy as np
 
-try:
-    from utils import Bounds2D
-except Exception:
-    from road2sbi.utils import Bounds2D  # type: ignore
+from road2sbi.utils import Bounds2D
 
 
 def sim_linear_gaussian(theta: np.ndarray, sigma: float, rng: np.random.Generator) -> np.ndarray:

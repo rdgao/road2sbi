@@ -16,15 +16,11 @@ except Exception:
     MATPLOTLIB_AVAILABLE = False
 
 # Shared types
-try:
-    from utils import Bounds2D
-except Exception:  # allow import when run from parent folder
-    from road2sbi.utils import Bounds2D  # type: ignore
+from road2sbi.utils import Bounds2D
 
-try:
-    from density1d_models import pdf_gaussian
-except Exception:
-    from road2sbi.density1d_models import pdf_gaussian  # type: ignore
+# density1d_models.py lives at the project root, not inside this package; this only
+# resolves when the project root is on sys.path (true for `streamlit run` from the repo root).
+from density1d_models import pdf_gaussian
 
 
 # ---------------- Shared 2D scatter plotting utilities ----------------
