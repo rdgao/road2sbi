@@ -12,7 +12,7 @@ A 3-hour hands-on tutorial following lectures on Bayesian basics → rejection A
 | Notebook | Content | Exercise gaps |
 |---|---|---|
 | `exercise_0_mle.ipynb` | Gaussian MLE: pen-and-paper derivation, closed form, then the same fit with `mu`/`log_sigma` + Adam. No simulator. | 0a derivation (answer in the last markdown cell), 0b closed form, 0c `gaussian_nll`, 0d training loop |
-| `exercise_1_abc.ipynb` | Rejection ABC, ε sweep, `abc_posterior_samples` | 1a `rejection_abc`, 1b choose `EPSILON` (target 1–5% acceptance) |
+| `exercise_1_abc.ipynb` | Rejection ABC, ε sweep, `abc_posterior_samples` | 1a `rejection_abc`, 1b choose `EPSILON` (target <1% acceptance; solution `EPSILON = 0.15`) |
 | `exercise_2_mdn.ipynb` | MDN (K=10, tanh, `x_scale=10`), log-sum-exp NLL, same loop shape as 0d, overlay with ABC, amortization panels | 2a `MDN` module, 2b `mdn_nll`, 2c training loop, 2d `mdn_density` |
 | `exercise_3_sbi.ipynb` | `sbi` NPE with manual simulation (not `simulate_for_sbi`), 3-way comparison (ABC/MDN/NPE), knobs (`posterior_nn`, train args), ABC vs NPE at matched budgets (TV distance), optional SBC, failure modes (too-narrow prior, out-of-range x), `run_npe` template for your own simulator | 3a NPE train/build, 3b sample, 3c NPE inside the budget loop |
 
