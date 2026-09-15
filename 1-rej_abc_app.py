@@ -39,34 +39,17 @@ except Exception:
 st.set_page_config(page_title="Rejection ABC Demo", layout="wide")
 
 # Import modular utilities
-try:
-    from utils import (
-        Bounds2D,
-        nice_ticks,
-        canvas_to_theta,
-        theta_to_canvas,
-        ellipse_points,
-        kde2d_grid,
-        compute_acceptance_mask,
-        compute_distances,
-    )
-except Exception:  # Support running from project root
-    from road2sbi.utils import (
-        Bounds2D,
-        nice_ticks,
-        canvas_to_theta,
-        theta_to_canvas,
-        ellipse_points,
-        kde2d_grid,
-        compute_acceptance_mask,
-        compute_distances,
-    )
-
-
-try:
-    from simulators import get_simulator, preprocess_theta, sim_checkerboard
-except Exception:
-    from road2sbi.simulators import get_simulator, preprocess_theta, sim_checkerboard
+from road2sbi.utils import (
+    Bounds2D,
+    nice_ticks,
+    canvas_to_theta,
+    theta_to_canvas,
+    ellipse_points,
+    kde2d_grid,
+    compute_acceptance_mask,
+    compute_distances,
+)
+from road2sbi.simulators import get_simulator, preprocess_theta, sim_checkerboard
 
 
 def ensure_state():
@@ -113,19 +96,10 @@ def add_sample(theta: np.ndarray, sim_name: str, noise_sigma: float, bounds: Bou
     st.session_state.ys.append((float(y[0]), float(y[1])))
 
 
-try:
-    from plot_utils import (
-        plot_scatter_plotly,
-        plot_scatter_matplotlib,
-    )
-except Exception:
-    from road2sbi.plot_utils import (
-        plot_scatter_plotly,
-        plot_scatter_matplotlib,
-    )
-
-
-# utilities already imported above via utils/road2sbi.utils
+from road2sbi.plot_utils import (
+    plot_scatter_plotly,
+    plot_scatter_matplotlib,
+)
 
 
 def main():
@@ -288,6 +262,8 @@ def main():
                 "Click capture uses optional dependency 'streamlit-drawable-canvas'.\n"
                 "Install with: pip install streamlit-drawable-canvas"
             )
+        elif st.session_state.get("_canvas_broken", False):
+            st.info("Canvas drawing failed to load in this environment; using click-to-select on the plot instead.")
 
     
 
@@ -323,7 +299,7 @@ def main():
         W, H = 420, 420
         new_theta_from_click = None
 
-        if _CANVAS_AVAILABLE:
+        if _CANVAS_AVAILABLE and not st.session_state.get("_canvas_broken", False):
             # Pre-populate with existing points
             init_objs = []
             # ----- Axes, ticks, and labels on canvas -----
@@ -450,19 +426,26 @@ def main():
                 })
 
             if _CANVAS_AVAILABLE and st_canvas is not None:
-                canvas = st_canvas(
-                    key=f"param-canvas-{st.session_state.canvas_key}",
-                    fill_color="#1f77b466",
-                    stroke_width=2,
-                    stroke_color="#1f77b4",
-                    background_color="#FFFFFF",
-                    update_streamlit=True,
-                    height=H,
-                    width=W,
-                    drawing_mode="point",
-                    initial_drawing={"version": "4.4.0", "objects": init_objs},
-                    display_toolbar=True,
-                )
+                try:
+                    canvas = st_canvas(
+                        key=f"param-canvas-{st.session_state.canvas_key}",
+                        fill_color="#1f77b466",
+                        stroke_width=2,
+                        stroke_color="#1f77b4",
+                        background_color="#FFFFFF",
+                        update_streamlit=True,
+                        height=H,
+                        width=W,
+                        drawing_mode="point",
+                        initial_drawing={"version": "4.4.0", "objects": init_objs},
+                        display_toolbar=True,
+                    )
+                except Exception:
+                    # streamlit-drawable-canvas is unmaintained and can break on newer Streamlit
+                    # versions; fall back to the Plotly/Matplotlib click UI instead of crashing.
+                    st.session_state._canvas_broken = True
+                    st.warning("Canvas drawing is unavailable in this environment. Falling back to click-to-select on the plot below.")
+                    st.rerun()
                 # Handle canvas clicks more robustly to prevent flashing
                 if canvas.json_data is not None:
                     try:
