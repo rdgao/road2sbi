@@ -13,7 +13,7 @@ A 3-hour hands-on tutorial following lectures on Bayesian basics → rejection A
 |---|---|---|
 | `exercise_0_mle.ipynb` | Gaussian MLE: pen-and-paper derivation, closed form, then the same fit with `mu`/`log_sigma` + Adam. No simulator. | 0a derivation (answer in the last markdown cell), 0b closed form, 0c `gaussian_nll`, 0d training loop |
 | `exercise_1_abc.ipynb` | Rejection ABC, ε sweep, `abc_posterior_samples` | 1a `rejection_abc`, 1b choose `EPSILON` (target <1% acceptance; solution `EPSILON = 0.15`) |
-| `exercise_2_mdn.ipynb` | MDN (K=10, tanh, `x_scale=10`), log-sum-exp NLL, same loop shape as 0d, overlay with ABC, amortization panels | 2a `MDN` module, 2b `mdn_nll`, 2c training loop, 2d `mdn_density` |
+| `exercise_2_mdn.ipynb` | Warm-up: a `RegressionNet` baseline (single mean, Gaussian NLL with fixed σ=1, i.e. squared error) shows why one Gaussian can't follow multiple branches, before introducing the MDN (K=6, tanh, `x_scale=10`, hidden attribute `self.mlp` not `self.body`), log-sum-exp NLL, same loop shape as 0d, overlay with ABC, amortization panels | 2a `MDN` module, 2b `mdn_nll`, 2c training loop, 2d `mdn_density` |
 | `exercise_3_sbi.ipynb` | `sbi` NPE with manual simulation (not `simulate_for_sbi`), 3-way comparison (ABC/MDN/NPE), knobs (`posterior_nn`, train args), ABC vs NPE at matched budgets (TV distance), optional SBC, failure modes (too-narrow prior, out-of-range x), `run_npe` template for your own simulator | 3a NPE train/build, 3b sample, 3c NPE inside the budget loop |
 
 ### Decisions (fixed unless the user changes them)
@@ -23,6 +23,7 @@ A 3-hour hands-on tutorial following lectures on Bayesian basics → rejection A
 - `THETA_TRUE = -1.0` → `x_obs ≈ -5.44` (with the torch-based `simulate`). The true posterior has 4 modes (θ ≈ -8, -3.7, -1, 6.5; the last is small). The user tunes this by hand. Don't run parameter sweeps or grid analyses unless asked.
 - **Shared setup cell**: the code cell starting `# ---------------- Shared setup` (constants, `mean_x`, `noise_std`, `simulate`, `THETA_TRUE`/`x_obs`, `SHOW_GROUND_TRUTH` + `grid_posterior`, `COLORS`) and its markdown cell must stay **byte-identical in exercises 1, 2 and 3**. Copy-paste, no shared module. Any edit to one must be applied to all three.
 - `grid_posterior(x)` is the numerical ground-truth posterior, shown when `SHOW_GROUND_TRUTH = True`. The TV-distance budget comparison in Ex 3 always uses it.
+- **MDN input scaling (2026-09-16):** `x_scaled = x / self.x_scale` sits in `MDN.forward` *outside* the EXERCISE 2a SOLUTION block (given scaffold code) — the student's gap is just "pass `x_scaled` through `self.mlp`", so they never have to reason about or write the rescaling themselves.
 - **Colors** (Okabe–Ito): ABC `#E69F00`, MDN `#009E73`, NPE `#0072B2`, truth `0.3` grey, prior `0.75` grey, `theta_true` a black dashed line.
 - Ex 2 and Ex 3 regenerate ABC (and Ex 3 the MDN) inline from solution code. No files are passed between notebooks.
 - sbi 0.25 API: `from sbi.inference import NPE` (not `SNPE`), `NPE(prior, density_estimator="nsf")`, tensors shaped `(n, 1)` float32, `posterior.sample((n,), x=x_obs_t)`.
