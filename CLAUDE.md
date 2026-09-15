@@ -18,9 +18,9 @@ A 3-hour hands-on tutorial following lectures on Bayesian basics → rejection A
 
 ### Decisions (fixed unless the user changes them)
 
-- **Simulator** (chosen by the user): `x = 7·sin(0.75·θ) + 1·θ + ε`, `ε ~ N(0, σ(θ)²)`, `σ(θ) = 1.5·(sin θ + 1.5)`, prior `θ ~ U(-10.5, 10.5)`. Keep the noise model exactly.
-- **Seed 42 everywhere** (`SEED = 42`): numpy rng, `torch.manual_seed`, and `x_obs` (generated with its own `default_rng(SEED)`).
-- `THETA_TRUE = -1.0` → `x_obs ≈ -5.47`. The true posterior has 4 modes (θ ≈ -8, -3.7, -1, 6.5; the last is small). The user tunes this by hand. Don't run parameter sweeps or grid analyses unless asked.
+- **Simulator** (chosen by the user): `x = 7·sin(0.75·θ) + 1·θ + ε`, `ε ~ N(0, σ(θ)²)`, `σ(θ) = 1.5·(sin θ + 1.5)`, prior `θ ~ U(-10.5, 10.5)`. Keep the noise model (heteroscedastic in θ) exactly.
+- **Prior and RNG (redesigned 2026-09-16):** `prior` is a single `sbi.utils.BoxUniform` object, defined once in the shared setup and reused unchanged as the ABC/MDN sampling distribution *and* the `sbi` prior in Exercise 3 (no second prior definition there anymore). `simulate(theta)` is a pure-torch function (`torch.sin`, `torch.randn_like`) with no explicit RNG argument — it draws from whatever the global torch RNG state happens to be. Seeding is just `torch.manual_seed(SEED)` (no numpy `rng` object anywhere in 1/2/3). This means exact sampled values can shift if cells are run out of order or extra sampling calls are added/removed before a given cell — the user is fine with that; no exercise depends on exact reproducibility, only on qualitative behavior (acceptance rate thresholds, mode counts, etc.).
+- `THETA_TRUE = -1.0` → `x_obs ≈ -5.44` (with the torch-based `simulate`). The true posterior has 4 modes (θ ≈ -8, -3.7, -1, 6.5; the last is small). The user tunes this by hand. Don't run parameter sweeps or grid analyses unless asked.
 - **Shared setup cell**: the code cell starting `# ---------------- Shared setup` (constants, `mean_x`, `noise_std`, `simulate`, `THETA_TRUE`/`x_obs`, `SHOW_GROUND_TRUTH` + `grid_posterior`, `COLORS`) and its markdown cell must stay **byte-identical in exercises 1, 2 and 3**. Copy-paste, no shared module. Any edit to one must be applied to all three.
 - `grid_posterior(x)` is the numerical ground-truth posterior, shown when `SHOW_GROUND_TRUTH = True`. The TV-distance budget comparison in Ex 3 always uses it.
 - **Colors** (Okabe–Ito): ABC `#E69F00`, MDN `#009E73`, NPE `#0072B2`, truth `0.3` grey, prior `0.75` grey, `theta_true` a black dashed line.
@@ -47,7 +47,7 @@ Markdown solutions use `<!-- SOLUTION START ... -->` / `<!-- SOLUTION END -->`. 
 
 ### Open review points (raised, not yet decided)
 
-1. Ex 3 budget comparison: NPE only clearly beats ABC at N=500; they're about equal at 2k/10k, partly because the 0.5-wide TV bins can't resolve the sharp modes. Could use finer bins or more ABC samples.
+1. Ex 3 budget comparison: with the current seed/RNG, NPE now has lower TV distance than ABC at all three budgets (500/2k/10k), including a wide margin at N=500. (Previously, before the 2026-09-16 RNG redesign, ABC and NPE were about equal at 2k/10k.) Still worth watching if this flips with future edits — the 0.5-wide TV bins can't resolve the sharp modes well.
 2. Ex 2 MDN occasionally produces a narrow spike (a collapsed component, e.g. θ≈6.5 at `x_obs`, θ≈1.2 at x=10). Keep it as a discussion point, or add a lower bound on `log_sigma`.
 3. Ex 3 SBC rank plot (`sbc_rank_plot(..., plot_type="hist")`) is hard to read; `plot_type="cdf"` may be clearer.
 
