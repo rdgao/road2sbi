@@ -50,7 +50,7 @@ Markdown solutions use `<!-- SOLUTION START ... -->` / `<!-- SOLUTION END -->`. 
 
 1. Ex 3 budget comparison: with the current seed/RNG, NPE now has lower TV distance than ABC at all three budgets (500/2k/10k), including a wide margin at N=500. (Previously, before the 2026-09-16 RNG redesign, ABC and NPE were about equal at 2k/10k.) Still worth watching if this flips with future edits — the 0.5-wide TV bins can't resolve the sharp modes well.
 2. Ex 2 MDN occasionally produces a narrow spike (a collapsed component, e.g. θ≈6.5 at `x_obs`, θ≈1.2 at x=10). Keep it as a discussion point, or add a lower bound on `log_sigma`.
-3. Ex 3 SBC rank plot (`sbc_rank_plot(..., plot_type="hist")`) is hard to read; `plot_type="cdf"` may be clearer.
+3. ~~Ex 3 SBC rank plot (`sbc_rank_plot(..., plot_type="hist")`) is hard to read.~~ Resolved 2026-09-16: switched to `plot_type="cdf"` — the histogram version overlaid a semi-transparent uniform-reference band on the bars in a way that read as a solid block; the CDF version clearly shows the empirical CDF tracking the uniform band.
 
 ### Deferred ideas (not in these four notebooks)
 
