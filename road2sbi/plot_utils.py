@@ -42,23 +42,6 @@ def plot_scatter_plotly(points: List[Tuple[float, float]], title: str, bounds: B
     xs_curr = [points[-1][0]] if n >= 1 else []
     ys_curr = [points[-1][1]] if n >= 1 else []
     fig = go.Figure()
-    if bounds is not None:
-        # streamlit-plotly-events only detects clicks on an existing data point, not
-        # empty canvas -- add a dense, invisible grid so a click anywhere on the plot
-        # (including before any real point has been sampled) has something to land on.
-        grid_n = 41
-        grid_x, grid_y = np.meshgrid(
-            np.linspace(bounds.x_min, bounds.x_max, grid_n),
-            np.linspace(bounds.y_min, bounds.y_max, grid_n),
-        )
-        fig.add_trace(
-            go.Scatter(
-                x=grid_x.ravel(), y=grid_y.ravel(), mode="markers",
-                marker=dict(size=18, color="rgba(0,0,0,0.001)"),
-                # "none" (not "skip"): still participates in click/hover picking, just shows no tooltip.
-                hoverinfo="none", showlegend=False, name="_click_target",
-            )
-        )
     if n > 1:
         if accepted_mask is not None and len(accepted_mask) == n:
             if only_accepted:
